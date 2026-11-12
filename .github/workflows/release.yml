@@ -1,0 +1,62 @@
+# Pushing a tag like v3.17.0 builds the Forever zip and publishes a GitHub
+# release with a release.json, which is what WowUp reads to install and update.
+name: Release
+
+on:
+  push:
+    tags: ['v*']
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Check the addon
+        run: |
+          set -eu
+          dir=TheGoldenThugget_Client
+          toc="$dir/$dir.toc"
+          ver=$(sed -n 's/^## Version:[[:space:]]*\([^[:space:]]*\).*/\1/p' "$toc" | tr -d '\r')
+          iface=$(sed -n 's/^## Interface:[[:space:]]*\([0-9]*\).*/\1/p' "$toc" | tr -d '\r')
+          tag="$GITHUB_REF_NAME"
+          if [ "$tag" != "v$ver" ]; then
+            echo "::error::Tag $tag doesn't match the TOC version $ver"; exit 1
+          fi
+          case "$iface" in
+            160??) ;;
+            *) echo "::error::Interface $iface isn't a WoW Forever interface (160xx)"; exit 1 ;;
+          esac
+          # The house's code must never ship to players.
+          for f in Bank.lua Host.lua CardHost.lua HoldemHost.lua HostUI.lua; do
+            if [ -e "$dir/$f" ]; then echo "::error::$f is host-only and must not be in this repo"; exit 1; fi
+          done
+          # Every file the TOC loads has to exist.
+          grep -v '^#' "$toc" | tr -d '\r' | sed '/^[[:space:]]*$/d' | while read -r f; do
+            if [ ! -f "$dir/$f" ]; then echo "::error::The TOC loads $f but it's missing"; exit 1; fi
+          done
+          echo "VER=$ver" >> "$GITHUB_ENV"
+          echo "IFACE=$iface" >> "$GITHUB_ENV"
+
+      - name: Build the zip and release.json
+        run: |
+          set -eu
+          zip="TheGoldenThugget_Client-${VER}-forever.zip"
+          zip -r -X -q "$zip" TheGoldenThugget_Client -x '*/.DS_Store' '*/Thumbs.db' '*/desktop.ini'
+          printf '{"releases":[{"name":"Golden Thugget Client","version":"%s","filename":"%s","nolib":false,"metadata":[{"flavor":"forever","interface":%s}]}]}\n' \
+            "$GITHUB_REF_NAME" "$zip" "$IFACE" > release.json
+          cat release.json
+          unzip -l "$zip" | tail -n 3
+          echo "ZIP=$zip" >> "$GITHUB_ENV"
+
+      - name: Publish the release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -eu
+          git log -1 --format=%B > notes.txt
+          gh release create "$GITHUB_REF_NAME" "$ZIP" release.json \
+            --title "Golden Thugget Client $VER" --notes-file notes.txt

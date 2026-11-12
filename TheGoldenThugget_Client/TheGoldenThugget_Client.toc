@@ -1,0 +1,26 @@
+## Interface: 16001
+## Title: Golden Thugget |cff88ccffClient|r
+## Notes: Play at The Golden Thugget: join the house's dice, card and Hold'em tables from anywhere and see the ledger. Enable this OR Golden Thugget Host, not both.
+## Author: Wes
+## Version: 3.17.0
+## OptionalDeps: TheGoldenThugget_Host
+## SavedVariables: GoldenThuggetDB
+## IconTexture: Interface\AddOns\TheGoldenThugget_Client\Media\logo
+
+Core.lua
+SHA256.lua
+Comm.lua
+SpeedTest.lua
+Games.lua
+Cards.lua
+Holdem.lua
+Client.lua
+CardClient.lua
+HoldemClient.lua
+UIKit.lua
+ClientUI.lua
+CardUI.lua
+HoldemUI.lua
+DiceUI.lua
+HandUI.lua
+Trade.lua

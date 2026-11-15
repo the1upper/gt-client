@@ -24,6 +24,7 @@ local function refresh()
 	if C.SyncTables then C:SyncTables() end
 	if ns.ClientUI and ns.ClientUI.Refresh then ns.ClientUI:Refresh() end
 	if ns.DiceUI and ns.DiceUI.Refresh then ns.DiceUI:Refresh() end
+	if ns.SlotsUI and ns.SlotsUI.Refresh then ns.SlotsUI:Refresh() end
 end
 
 ---------------------------------------------------------------------------
@@ -168,7 +169,9 @@ function C:OpenTable()
 	if not def then return end
 	if def.ui == "hand" then if g.cards then ns.HandUI:Open() end
 	elseif def.ui == "holdem" then if g.cards then ns.HoldemUI:Open() end
+	elseif def.ui == "blitz" then if g.cards then ns.BlitzUI:Open() end
 	elseif def.kind == "cards" then if g.cards then ns.CardUI:Open() end
+	elseif def.ui == "slots" then ns.SlotsUI:Open()
 	else ns.DiceUI:Open() end
 end
 
@@ -219,7 +222,7 @@ end
 ---------------------------------------------------------------------------
 -- Table windows: hide now, or a few seconds after the table finishes
 function C:HideTables()
-	for _, w in ipairs({ ns.DiceUI, ns.HandUI, ns.CardUI, ns.HoldemUI }) do
+	for _, w in ipairs({ ns.DiceUI, ns.HandUI, ns.CardUI, ns.HoldemUI, ns.SlotsUI, ns.BlitzUI }) do
 		if w and w.frame and w.frame:IsShown() then w.frame:Hide() end
 	end
 end
@@ -228,7 +231,7 @@ function C:CloseTableSoon(g)
 	if g.closeAt then return end
 	g.closeAt = GetTime() + self.CLOSE_DELAY
 	refresh()
-	for _, w in ipairs({ ns.DiceUI, ns.HandUI, ns.CardUI, ns.HoldemUI }) do if w and w.Refresh then w:Refresh() end end
+	for _, w in ipairs({ ns.DiceUI, ns.HandUI, ns.CardUI, ns.HoldemUI, ns.SlotsUI, ns.BlitzUI }) do if w and w.Refresh then w:Refresh() end end
 	-- the countdown waits while the mouse is over a table window (still reading)
 	-- (the button just says Close while paused, then counts down from 2 once you move away)
 	local function tryClose()
@@ -252,7 +255,7 @@ end
 -- The button ticks its own countdown, so it never depends on a window refresh.
 -- the mouse is over an open table window (the close countdown waits)
 function C:TableHovered()
-	for _, w in ipairs({ ns.DiceUI, ns.HandUI, ns.CardUI, ns.HoldemUI }) do
+	for _, w in ipairs({ ns.DiceUI, ns.HandUI, ns.CardUI, ns.HoldemUI, ns.SlotsUI, ns.BlitzUI }) do
 		local f = w and w.frame
 		if f and f:IsShown() and f.IsMouseOver and f:IsMouseOver() then return true end
 	end
@@ -348,7 +351,7 @@ function C:Watch(id)
 	elseif self:Active() then
 		return ns.Print("You're at a table. Leave it first to watch another.")
 	end
-	local a = id and self.lobby[id]
+	local a = id and (self.lobby[id] or (self.started and self.started[id]))
 	if not a then
 		for _, x in pairs(self.lobby) do if not a or x.seen > a.seen then a = x end end
 	end
@@ -554,7 +557,7 @@ local function hushed(fn)
 	local saved = {}
 	local function stub(t, k) if t and type(t[k]) == "function" then saved[#saved + 1] = { t, k, t[k] }; t[k] = function() end end end
 	stub(ns, "Notify"); stub(ns, "Print"); stub(ns, "Log")
-	for _, ui in ipairs({ ns.CardUI, ns.HandUI, ns.DiceUI, ns.ClientUI, ns.HoldemUI }) do
+	for _, ui in ipairs({ ns.CardUI, ns.HandUI, ns.DiceUI, ns.ClientUI, ns.HoldemUI, ns.SlotsUI, ns.BlitzUI }) do
 		for k, v in pairs(ui) do if type(v) == "function" then stub(ui, k) end end
 	end
 	stub(C, "CloseTableSoon"); stub(C, "RequestLedger"); stub(C, "ToHost"); stub(C, "SyncTables")
@@ -597,7 +600,7 @@ function C:Rebuild(id, parts)
 		for i, p in ipairs(g.players) do
 			if ok and not fset[p] and (not secrets[i] or ns.CommitHash(g.id, p, secrets[i]) ~= g.commits[i]) then ok = false end
 		end
-		local result = ns.Games.Resolve(g, ns.Seed(g.id, g.players, secrets, forfeits), forfeits)
+		local result = ns.Games.Resolve(g, ns.Seed(g.id, g.players, secrets, forfeits), forfeits, secrets)
 		if not ok or ns.Games.ResultHash(result) ~= res[5] then g.disputed = true end
 		g.phase, g.result = "done", result
 		local delta = 0
@@ -610,6 +613,10 @@ function C:Rebuild(id, parts)
 		for i = 1, #rolls do landed[i] = true end
 		for _, p in ipairs(g.players) do landedBy[p] = true end
 		g.dice = { rolls = rolls, shown = #rolls, sent = {}, done = true, landed = landed, landedBy = landedBy, tiesShown = true }
+		if result.slots then
+			g.sl = { spun = {}, mine = 3, final = true }
+			for _, p in ipairs(g.players) do g.sl.spun[p] = 3 end
+		end
 	end
 	g.closeAt = GetTime() - 1 -- the window's button just says Close
 	return g
@@ -645,7 +652,7 @@ H.ANN = function(sender, f, via)
 		local text = ns.Games.types[gtype].describe(a)
 		if a.direct then
 			ns.Notify(ns.Short(sender) .. " invites you: " .. text .. ". |cffffd100/gt join|r")
-			if PlaySound and SOUNDKIT and SOUNDKIT.READY_CHECK then pcall(PlaySound, SOUNDKIT.READY_CHECK) end
+			ns.Sound.Play("invite")
 		elseif sender ~= ns.me then
 			ns.Print("Table open: " .. text .. ". |cffffd100/gt join|r")
 		end
@@ -686,8 +693,16 @@ H.LOCK = function(sender, f)
 	local tr = C:TrackTable(id, { type = ns.Games.types[f[3]] and f[3] or nil, wager = tonumber(f[4]), param = tonumber(f[5]), hands = tonumber(f[7]) })
 	tr.players, tr.count, tr.seenAt = roster, #roster, GetTime()
 	C:SetTableStatus(tr, "live")
+	local was = C.lobby[id]
 	C.lobby[id] = nil
 	if ns.ClientUI.HideToast then ns.ClientUI:HideToast(id) end
+	-- a table you saw open but didn't join just started: offer to watch it
+	if was and sender ~= ns.me and not ns.IndexOf(roster, ns.me) and not C:Active() then
+		was.live, was.count, was.players, was.seen = true, #roster, roster, GetTime()
+		C.started = C.started or {}
+		C.started[id] = was
+		if ns.ClientUI.Toast then ns.ClientUI:Toast(was, true) end
+	end
 	local g = C.game
 	if not (g and g.id == id and g.phase == "open") then refresh() return end
 	if g.watching then
@@ -696,6 +711,7 @@ H.LOCK = function(sender, f)
 		g.players = roster
 		g.phase = "commit"
 		g.touched, g.lockedAt = GetTime(), GetTime()
+		ns.Sound.TableStart(g.type)
 		ns.Print("Watching: " .. ns.ShortList(roster) .. ".")
 		if ns.Games.types[g.type].kind ~= "cards" and ns.DiceUI then ns.DiceUI:Open() end
 		if g.pendingCmts then local p = g.pendingCmts; g.pendingCmts = nil; H.CMTS(sender, p) end
@@ -712,10 +728,38 @@ H.LOCK = function(sender, f)
 	g.players = roster
 	g.phase = "commit"
 	g.touched, g.lockedAt = GetTime(), GetTime()
+	ns.Sound.TableStart(g.type)
+	if g.type == "coinflip" and roster[ns.Games.CoinCaller(g)] == ns.me then
+		-- you call it: your HEADS/TAILS is sealed with your roll, so nothing goes out until you pick
+		g.awaitCall, g.callDeadline = true, GetTime() + C.CALL_TIME
+		ns.Notify(("You call it! Click |cffffd100Heads|r or |cffffd100Tails|r (picks for you in %ds)."):format(C.CALL_TIME))
+		if ns.DiceUI then ns.DiceUI:Open() end
+		return refresh()
+	end
 	g.secret = ns.NewSecret()
 	g.myCommit = ns.CommitHash(id, ns.me, g.secret)
 	C:ToHost(J("CMT", id, g.myCommit))
-	ns.Print("Table locked: " .. ns.ShortList(roster) .. ". Rolling...")
+	ns.Print("Table locked: " .. ns.ShortList(roster) .. (g.type == "coinflip" and "." or ". Rolling..."))
+	if g.type == "coinflip" and ns.DiceUI then ns.DiceUI:Open() end
+	refresh()
+end
+
+-- Coin Flip: the caller picks "H" or "T". The pick rides at the end of the sealed
+-- roll, so it's fixed before any roll is opened.
+C.CALL_TIME = 20
+function C:CanCall()
+	local g = self.game
+	return (g and g.awaitCall and not g.watching and g.phase == "commit") and true or false
+end
+
+function C:Call(face)
+	local g = self.game
+	if not (g and g.awaitCall and g.phase == "commit") or (face ~= "H" and face ~= "T") then return end
+	g.awaitCall, g.myCall = false, face
+	g.secret = ns.NewSecret() .. face
+	g.myCommit = ns.CommitHash(g.id, ns.me, g.secret)
+	self:ToHost(J("CMT", g.id, g.myCommit))
+	ns.Print(("You called |cffffd100%s|r."):format(ns.Games.FACE[face]))
 	refresh()
 end
 
@@ -777,7 +821,7 @@ H.RES = function(sender, f)
 	if fset[ns.me] then
 		ns.Notify("|cffff4040The house marked you as not revealing|r (connection problem?). Talk to the host if that's wrong.")
 	end
-	local res = ns.Games.Resolve(g, ns.Seed(g.id, g.players, secrets, forfeits), forfeits)
+	local res = ns.Games.Resolve(g, ns.Seed(g.id, g.players, secrets, forfeits), forfeits, secrets)
 	if not ok or ns.Games.ResultHash(res) ~= f[5] then
 		g.disputed = true
 		ns.Notify("|cffff4040Warning:|r this result could not be verified against the sealed rolls. Tell the host.")
@@ -794,7 +838,21 @@ H.RES = function(sender, f)
 	g.delta = delta
 	g.dice = { rolls = res.rolls or {}, shown = 0, sent = {} }
 	if ns.DiceUI then ns.DiceUI:Open() end
-	if g.type == "deathroll" and #g.dice.rolls > 0 then
+	if res.slots then
+		-- Battle Slots: three spins each, everyone at once
+		g.sl = { spun = {}, mine = 0 }
+		for _, p in ipairs(g.players) do g.sl.spun[p] = 0 end
+		if ns.IndexOf(g.players, ns.me) and not g.watching then
+			g.sl.deadline = GetTime() + C.AUTO_SPIN + 8 -- a little longer for the first pull
+			ns.Notify(("Battle Slots: grab the lever and drag it down! Three spins (it pulls itself after %ds)."):format(C.AUTO_SPIN))
+		end
+		if ns.SlotsUI then ns.SlotsUI:Open() end
+		if g.pendingSPR then local p = g.pendingSPR; g.pendingSPR = nil; H.SPR(sender, p) end
+	elseif res.coin then
+		-- Coin Flip: toss it, then the result once it has settled
+		local t = ns.DiceUI and ns.DiceUI:Flip(res.coin) or 0
+		C_Timer.After(t, function() if C.game == g then C:FinishDice(g) end end)
+	elseif g.type == "deathroll" and #g.dice.rolls > 0 then
 		-- the house runs the turns: wait for DRT (your turn) / DRR (the roll)
 		g.dice.waiting = true
 	elseif #g.dice.rolls > 0 then
@@ -805,7 +863,7 @@ H.RES = function(sender, f)
 			g.awaitRoll = true
 			g.rollDeadline = GetTime() + AUTO_ROLL
 			ns.Notify(("Your turn to roll! Click |cffffd100Roll|r (rolls itself in %ds)."):format(AUTO_ROLL))
-			if PlaySound and SOUNDKIT and SOUNDKIT.READY_CHECK then pcall(PlaySound, SOUNDKIT.READY_CHECK) end
+			-- (your-turn bell: ClientUI)
 		end
 		if g.pendingHRR then local p = g.pendingHRR; g.pendingHRR = nil; H.HRR(sender, p) end
 	else
@@ -854,10 +912,90 @@ H.HRR = function(sender, f)
 	g.touched = GetTime()
 end
 
+---------------------------------------------------------------------------
+-- Battle Slots
+---------------------------------------------------------------------------
+C.AUTO_SPIN = 12
+
+function C:CanSpin()
+	local g = self.game
+	local sl = g and g.sl
+	return (sl and not g.watching and not sl.busy and sl.mine < 3 and not sl.final and ns.IndexOf(g.players, ns.me)) and true or false
+end
+
+function C:Spin()
+	if not self:CanSpin() then return end
+	local g = self.game
+	local sl = g.sl
+	local k = sl.mine + 1
+	sl.mine, sl.busy = k, true
+	sl.spun[ns.me] = k
+	self:ToHost(J("SPN", g.id, k))
+	local t = ns.SlotsUI and ns.SlotsUI:SpinMine(k) or 0
+	C_Timer.After(t, function()
+		if self.game ~= g then return end
+		sl.busy = false
+		sl.deadline = GetTime() + C.AUTO_SPIN
+		C:SlotsCheck(g)
+		refresh()
+	end)
+	refresh()
+end
+
+-- everyone has taken their three spins (and yours have landed): the spin-off,
+-- if there is one, then the result
+function C:SlotsCheck(g)
+	local sl = g.sl
+	if not sl or sl.final or sl.busy then return end
+	for _, p in ipairs(g.players) do if (sl.spun[p] or 0) < 3 then return end end
+	sl.final = true
+	local t = ns.SlotsUI and ns.SlotsUI:Finale() or 0
+	C_Timer.After(t, function() if C.game == g then C:FinishDice(g) end end)
+	refresh()
+end
+
+-- SPR^id^name=k,... : how many spins each player has taken. Someone else's
+-- spin shows (in the table panel only, never on your machine) once it has
+-- landed on their screen.
+H.SPR = function(sender, f)
+	local g = C.game
+	if not (g and g.id == f[2]) then return end
+	if not g.sl then g.pendingSPR = f; return end
+	local sl = g.sl
+	sl.told = sl.told or {}
+	for _, kv in ipairs(ns.List(f[3])) do
+		local p, k = kv:match("^(.+)=(%d)$")
+		k = tonumber(k)
+		if p and k and k > (sl.told[p] or sl.spun[p] or 0) then
+			sl.told[p] = k
+			if p == ns.me then
+				-- the house spun for you (time ran out): show it at once
+				if not sl.busy then
+					sl.mine = math.max(sl.mine, k); sl.spun[p] = k
+					if ns.SlotsUI then ns.SlotsUI:OtherSpun(p, k) end
+				end
+			else
+				local sp = g.result and g.result.slots and g.result.slots.spins[p]
+				local wait = (sp and not g.review) and ns.Games.Slots.LandTime(sp[k]) or 0
+				C_Timer.After(wait, function()
+					if C.game ~= g or k <= (sl.spun[p] or 0) then return end
+					sl.spun[p] = k
+					if ns.SlotsUI then ns.SlotsUI:OtherSpun(p, k) end
+					C:SlotsCheck(g)
+					refresh()
+				end)
+			end
+		end
+	end
+	g.touched = GetTime()
+	C:SlotsCheck(g)
+	refresh()
+end
+
 -- High Roll / High-Low tables need a Roll click; Death Roll rolls per turn
 function C:NeedsRollClick(g)
 	local def = ns.Games.types[g.type]
-	return def and def.kind ~= "cards" and g.type ~= "deathroll"
+	return def and def.kind ~= "cards" and g.type ~= "deathroll" and g.type ~= "slots" and g.type ~= "coinflip"
 end
 
 -- Roll button
@@ -927,8 +1065,7 @@ H.DRT = function(sender, f)
 	if k - 1 > d.shown then d.shown = k - 1 end -- missed a roll: catch up
 	d.turn, d.waiting = k, nil
 	d.deadline = GetTime() + (tonumber(f[4]) or 20)
-	if d.rolls[k] and d.rolls[k].p == ns.me and PlaySound and SOUNDKIT and SOUNDKIT.READY_CHECK then
-		pcall(PlaySound, SOUNDKIT.READY_CHECK)
+	if false then -- (your-turn bell: ClientUI)
 	end
 	g.touched = GetTime()
 	refresh()
@@ -945,6 +1082,78 @@ H.DRR = function(sender, f)
 	local t = ns.DiceUI and ns.DiceUI:ShowRoll(k) or 0
 	if k >= #d.rolls then C_Timer.After(t, function() C:FinishDice(g) end) end
 	g.touched = GetTime()
+	refresh()
+end
+
+---------------------------------------------------------------------------
+-- Double or nothing (the house offers it when one player owes one other)
+---------------------------------------------------------------------------
+-- DON^id^loser^winner^amount^secs
+H.DON = function(sender, f)
+	local id, loser, winner, amount, secs = f[2], f[3], f[4], tonumber(f[5]), tonumber(f[6]) or 12
+	if not (loser and winner and amount) then return end
+	local g = C.game
+	local mine = (ns.me == loser or ns.me == winner) and not (g and g.watching and g.id == id)
+	-- everyone at the table (playing or watching) hears it
+	if mine or (g and g.id == id) then ns.Sound.Play("double_offer") end
+	if not mine then
+		if g and g.id == id then ns.Print(("Double or nothing? %s and %s are deciding..."):format(ns.Who(loser), ns.Who(winner))) end
+		return
+	end
+	C.double = { id = id, loser = loser, winner = winner, amount = amount, secs = secs, deadline = GetTime() + secs, yes = {}, route = g and g.id == id and g.route or nil }
+	if ns.DoubleUI then ns.DoubleUI:Show() end
+end
+
+-- answer: true = yes; auto = the fuse ran out
+function C:AnswerDouble(yes, auto)
+	local d = self.double
+	if not d or d.result or d.answer ~= nil then return end
+	d.answer = yes and true or false
+	if auto then d.answer = nil; d.expired = true end
+	self:ToHost(J("DONA", d.id, yes and "1" or "0"))
+	if ns.DoubleUI then ns.DoubleUI:Refresh() end
+end
+
+-- DONP^id^name : that player said yes
+H.DONP = function(sender, f)
+	local d = C.double
+	if not (d and d.id == f[2]) then return end
+	d.yes[f[3]] = true
+	if ns.DoubleUI then ns.DoubleUI:Refresh() end
+end
+
+-- DONR^id^no^why  or  DONR^id^yes^flipId^amount
+H.DONR = function(sender, f)
+	local d = C.double
+	local g = C.game
+	if not (d and d.id == f[2]) then
+		if g and g.id == f[2] then
+			ns.Print(f[3] == "yes" and "Double or nothing - they're flipping for it!" or "No double or nothing.")
+		end
+		return
+	end
+	d.result = f[3] == "yes" and "yes" or "no"
+	d.why = f[4]
+	if ns.DoubleUI then ns.DoubleUI:Refresh() end
+	if d.result == "yes" then
+		ns.Notify(("Double or nothing for %s - here comes the coin!"):format(ns.Money(tonumber(f[5]) or d.amount)))
+		C:JoinDouble(f[4], tonumber(f[5]) or d.amount, d.route)
+		C_Timer.After(1.5, function() if C.double == d and ns.DoubleUI then ns.DoubleUI:Hide() end end)
+	else
+		C_Timer.After(3, function() if C.double == d and ns.DoubleUI then ns.DoubleUI:Hide() end end)
+	end
+end
+
+-- straight into the flip: no lobby, no credit check (the house waives it here)
+function C:JoinDouble(id, amount, route)
+	if not id or id == "" then return end
+	if self.game and self.game.watching then self:StopWatching(true) end
+	if self:Active() then return end
+	self.game = {
+		id = id, type = "coinflip", wager = amount, param = 1, route = route, hands = 1,
+		players = {}, phase = "open", touched = GetTime(), double = true,
+	}
+	self:ToHost(J("JOIN", id, ns.PROTO), route)
 	refresh()
 end
 
@@ -1012,6 +1221,7 @@ function C:SetQuiet(on)
 	ns.Notify(on and "Quiet chat: only your turns, results and warnings go to chat. Everything else is in the /gt window."
 		or "Chat: showing everything again.")
 	refresh()
+	if ns.SettingsUI then ns.SettingsUI:Refresh() end
 end
 
 H.LS = function(sender, f)
@@ -1111,6 +1321,8 @@ function C:Init()
 		end
 		local rg = C.game
 		if rg and rg.awaitRoll and rg.rollDeadline and now > rg.rollDeadline then C:Roll() end
+		if rg and rg.sl and rg.sl.deadline and now > rg.sl.deadline and C:CanSpin() then C:Spin() end
+		if rg and rg.awaitCall and rg.phase == "commit" and rg.callDeadline and now > rg.callDeadline then C:Call(math.random(2) == 1 and "H" or "T") end
 		-- lost the house's "who rolled" list: after the roll window, show everyone
 		local rd = rg and rg.dice
 		if rd and rd.landed and not rd.tiesShown and rd.startedAt and now > rd.startedAt + 55 then

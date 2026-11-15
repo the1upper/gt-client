@@ -13,25 +13,36 @@ local backlog = {}
 local WIDTH = 528
 
 -- small game icon: the die for dice games, a card back for card games
+-- the picture for a game: a die, the d6 hand, a card back, the gold coin, or a slot 7
+function UI.SetGameIcon(tex, gtype, size)
+	local def = ns.Games.types[gtype]
+	if gtype == "coinflip" then
+		tex:SetTexture(ns.MEDIA .. "coin")
+		tex:SetTexCoord(0, 0.5, 0, 0.5) -- heads
+		tex:SetSize(size, size)
+	elseif gtype == "slots" then
+		tex:SetTexture(ns.MEDIA .. "slots")
+		tex:SetTexCoord(0, 0.25, 0, 0.25) -- the 7
+		tex:SetSize(size, size)
+	elseif def and def.ui == "hand" then
+		tex:SetTexture(ns.MEDIA .. "d6")
+		tex:SetTexCoord(4 * 64 / 512, 5 * 64 / 512, 0, 1)
+		tex:SetSize(size, size)
+	elseif def and def.kind == "cards" then
+		tex:SetTexture(ns.MEDIA .. "cards")
+		tex:SetTexCoord(ns.Cards.TexCoord(nil))
+		tex:SetSize(size * 0.72, size)
+	else
+		tex:SetTexture(ns.MEDIA .. "die")
+		tex:SetTexCoord(0, 1, 0, 1)
+		tex:SetSize(size, size)
+	end
+end
+
 function UI.GameIcon(parent, size)
 	local t = parent:CreateTexture(nil, "ARTWORK")
 	t:SetSize(size, size)
-	function t:SetGame(gtype)
-		local def = ns.Games.types[gtype]
-		if def and def.ui == "hand" then
-			self:SetTexture(ns.MEDIA .. "d6")
-			self:SetTexCoord(4 * 64 / 512, 5 * 64 / 512, 0, 1)
-			self:SetSize(size, size)
-		elseif def and def.kind == "cards" then
-			self:SetTexture(ns.MEDIA .. "cards")
-			self:SetTexCoord(ns.Cards.TexCoord(nil))
-			self:SetSize(size * 0.72, size)
-		else
-			self:SetTexture(ns.MEDIA .. "die")
-			self:SetTexCoord(0, 1, 0, 1)
-			self:SetSize(size, size)
-		end
-	end
+	function t:SetGame(gtype) UI.SetGameIcon(self, gtype, size) end
 	return t
 end
 
@@ -204,6 +215,9 @@ function UI:Build()
 		W.Tooltip(house, "Back to the house window (table control, Bank).")
 		self.houseBtn = house
 	end
+	local gear = ns.SettingsUI.Gear(f)
+	gear:SetPoint("TOPRIGHT", ns.HostUI and -120 or -34, -10)
+	self.gear = gear
 	f.OnTab = function(i) if i == 2 or i == 3 then ns.Client:RequestLedger() end UI:Refresh() end
 	local play, led, act = panels[1], panels[2], panels[4]
 	self.board = UI.BuildBoard(panels[3], WIDTH)
@@ -326,7 +340,9 @@ function UI.WindowFor(g)
 	if not def then return end
 	if def.ui == "hand" then return ns.HandUI
 	elseif def.ui == "holdem" then return ns.HoldemUI
-	elseif def.kind == "cards" then return ns.CardUI end
+	elseif def.ui == "blitz" then return ns.BlitzUI
+	elseif def.kind == "cards" then return ns.CardUI
+	elseif def.ui == "slots" then return ns.SlotsUI end
 	return ns.DiceUI
 end
 
@@ -354,8 +370,20 @@ function UI.MyTurn()
 		return
 	end
 	if g.type == "acey" then
-		local t = c and c.turn
-		if t and t.player == ns.me and c.phase == "bet" and not c.betSent then return true, c.deadline end
+		if ns.CardClient and ns.CardClient:CanPick() then return true, c.deadline end
+		return
+	end
+	if g.type == "blitz" then
+		local b = c and c.bz
+		if ns.CardClient and ns.CardClient:BlitzStage() then return true, b.turn.deadline end
+		return
+	end
+	if g.type == "coinflip" then
+		if C:CanCall() then return true, g.callDeadline end
+		return
+	end
+	if g.type == "slots" then
+		if C:CanSpin() then return true, g.sl.deadline end
 		return
 	end
 	if def.kind ~= "cards" and C:CanRoll() then
@@ -371,7 +399,7 @@ end
 function UI:TurnAlert()
 	local mine, deadline = UI.MyTurn()
 	local w = mine and UI.WindowFor(ns.Client.game)
-	local hidden = w and not (w.frame and w.frame:IsShown())
+	local hidden = w and not (w.frame and w.frame:IsShown()) and ns.db.settings.turnAlerts ~= false
 	local t = self.turnToast
 	if not hidden then
 		if t and t:IsShown() then t:Hide() end
@@ -409,7 +437,27 @@ function UI:TurnAlert()
 	t.detail:SetText(left and ((left <= 5 and "|cffff6161" or "") .. left .. "s left|r") or "The table is waiting on you")
 	if not t:IsShown() then
 		t:Show()
-		W.Sound({ "RAID_WARNING", "READY_CHECK" })
+	end
+end
+
+-- The same turn sounds for every game: a bell when it becomes your turn (rung
+-- twice if the table window is closed), two ticks at 5 seconds left.
+function UI:TurnSounds()
+	local mine, deadline = UI.MyTurn()
+	local key = mine and ((ns.Client.game.id or "?") .. ":" .. tostring(deadline)) or nil
+	if mine and key ~= self.turnKey then
+		local w = UI.WindowFor(ns.Client.game)
+		local hidden = not (w and w.frame and w.frame:IsShown())
+		ns.Sound.Play("your_turn")
+		if hidden then ns.Sound.Play("your_turn", 0.45) end
+	end
+	self.turnKey = key
+	if mine and deadline then
+		local left = deadline - GetTime()
+		if left <= 5 and left > 0 and self.hurried ~= key then
+			self.hurried = key
+			ns.Sound.Play("hurry")
+		end
 	end
 end
 
@@ -418,16 +466,21 @@ function UI:ShowTableWindow()
 	local def = g and ns.Games.types[g.type]
 	if def and def.ui == "hand" then ns.HandUI:Toggle()
 	elseif def and def.ui == "holdem" then ns.HoldemUI:Toggle()
+	elseif def and def.ui == "blitz" then ns.BlitzUI:Toggle()
 	elseif g and g.cards then ns.CardUI:Toggle()
+	elseif def and def.ui == "slots" then ns.SlotsUI:Toggle()
 	else ns.DiceUI:Toggle() end
 end
 
 ---------------------------------------------------------------------------
 -- New-table toast: a small card at the top of the screen when the house opens
--- a table and the main window is closed (/gt alerts to turn off)
+-- a table and the main window is closed (/gt alerts to turn off). When a table
+-- you didn't join starts, a shorter one offers to watch it.
 ---------------------------------------------------------------------------
-function UI:Toast(a)
-	if ns.db.settings.alerts == false then return end
+local JOIN_TOAST, WATCH_TOAST = 30, 15
+
+function UI:Toast(a, watch)
+	if ns.db.settings[watch and "watchAlerts" or "alerts"] == false then return end
 	if self.frame and self.frame:IsShown() then return end
 	local t = self.toast
 	if not t then
@@ -452,7 +505,8 @@ function UI:Toast(a)
 		t.join:SetScript("OnClick", function()
 			local id = t.id
 			t:Hide()
-			if id then ns.Client:Join(id) end
+			if not id then return end
+			if t.watch then ns.Client:Watch(id) else ns.Client:Join(id) end
 		end)
 		t.close = W.Button(pnl, "x", 22, 22)
 		t.close:SetPoint("TOPRIGHT", -6, -6)
@@ -463,27 +517,38 @@ function UI:Toast(a)
 		t.bar:SetHeight(3)
 		t.bar:SetColorTexture(C_.gold[1], C_.gold[2], C_.gold[3], 0.9)
 		t:SetScript("OnUpdate", function(self)
-			local left = math.max(0, 1 - (GetTime() - (self.shownAt or 0)) / 30)
+			local left = math.max(0, 1 - (GetTime() - (self.shownAt or 0)) / (self.dur or JOIN_TOAST))
 			self.bar:SetWidth(math.max(1, 378 * left))
 		end)
 		self.toast = t
 	end
 	local def = ns.Games.types[a.type]
-	t.id = a.id
+	t.id, t.watch = a.id, watch and true or nil
+	t.dur = watch and WATCH_TOAST or JOIN_TOAST
 	t.icon:SetGame(a.type)
-	t.title:SetText(("New table: %s  %s%s"):format(def.name, ns.Money(a.wager), def.wagerLabel and (" " .. def.wagerLabel:lower()) or def.kind == "cards" and " ante" or ""))
-	local block = ns.Client:JoinBlock(a)
-	local seats = a.max and ("   |cff9e948a%d/%d seated|r"):format(a.count or 0, a.max) or ""
-	t.detail:SetText(block and "|cffff6161" .. (a.outdated and "Update needed" or "Over your credit limit") .. "|r"
-		or ("Max loss %s%s%s"):format(ns.Money(ns.Games.WorstCase(a)), ns.Games.PerHand(a) and " a hand" or "", seats))
+	local stake = ns.Money(a.wager) .. (def.wagerLabel and (" " .. def.wagerLabel:lower()) or def.kind == "cards" and " ante" or "")
+	if watch then
+		t.title:SetText(("Starting now: %s  %s"):format(def.name, stake))
+		local n = a.count or (a.players and #a.players) or 0
+		t.detail:SetText(a.outdated and "|cffff6161Update needed|r" or ("%d player%s - come watch"):format(n, n == 1 and "" or "s"))
+		t.join:SetText("Watch")
+		t.join:SetEnabled(not a.outdated)
+	else
+		t.title:SetText(("New table: %s  %s"):format(def.name, stake))
+		local block = ns.Client:JoinBlock(a)
+		local seats = a.max and ("   |cff9e948a%d/%d seated|r"):format(a.count or 0, a.max) or ""
+		t.detail:SetText(block and "|cffff6161" .. (a.outdated and "Update needed" or "Over your credit limit") .. "|r"
+			or ("Max loss %s%s%s"):format(ns.Money(ns.Games.WorstCase(a)), ns.Games.PerHand(a) and " a hand" or "", seats))
+		t.join:SetText("Join")
+		t.join:SetEnabled(not block)
+	end
 	W.Fit(t.title, 214, 1)
 	W.Fit(t.detail, 214, 1)
-	t.join:SetEnabled(not block)
 	t:Show()
 	t.shownAt = GetTime()
 	local at = t.shownAt
-	C_Timer.After(30, function() if t.shownAt == at then t:Hide() end end)
-	if PlaySound and SOUNDKIT and SOUNDKIT.IG_PLAYER_INVITE then pcall(PlaySound, SOUNDKIT.IG_PLAYER_INVITE) end
+	C_Timer.After(t.dur, function() if t.shownAt == at then t:Hide() end end)
+	ns.Sound.Play(watch and "invite" or "table_open")
 end
 
 function UI:HideToast(id)
@@ -590,6 +655,7 @@ function UI:Detail(r, full)
 		if mine then
 			local what = g.watching and "|cff9e948aYou're watching.|r" or "|cffd9b545You're playing.|r"
 			if g.awaitRoll then what = "|cffd9b545Your roll! Open the table and click Roll.|r"
+			elseif g.awaitCall then what = "|cffd9b545Your call! Open the table and pick Heads or Tails.|r"
 			elseif UI.MyTurn() then what = "|cffff6161Your turn!|r |cffd9b545Open the table.|r" end
 			line = line .. (full and "\n" or SEP) .. what
 		end
@@ -685,5 +751,5 @@ end
 
 function UI:Init()
 	table.insert(ns.logSinks, function(msg) UI:Log(msg) end)
-	C_Timer.NewTicker(0.25, function() UI:TurnAlert() end)
+	C_Timer.NewTicker(0.25, function() UI:TurnAlert(); UI:TurnSounds() end)
 end

@@ -212,6 +212,7 @@ end
 -- hooks from CardClient
 ---------------------------------------------------------------------------
 function UI:Spin(mask)
+	ns.Sound.Play("dice_roll")
 	if not self.frame then return end
 	for i, b in ipairs(self.dice) do
 		if mask:sub(i, i) ~= "1" then spin(b.tex) end
@@ -222,7 +223,7 @@ function UI:Land()
 	if not self.frame then return end
 	local m = ns.Client.game.cards.my
 	for i, b in ipairs(self.dice) do settle(b.tex, m.dice[i], 0.15 + i * 0.08) end
-	if PlaySound and SOUNDKIT and SOUNDKIT.IG_MAINMENU_OPTION_CHECKBOX_ON then pcall(PlaySound, SOUNDKIT.IG_MAINMENU_OPTION_CHECKBOX_ON) end
+	ns.Sound.Play("dice_throw")
 end
 
 function UI:Showdown()

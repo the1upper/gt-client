@@ -34,11 +34,7 @@ local function addSeen(c, packed)
 	return code
 end
 
-local function sound(kit)
-	if ns.hush or not (PlaySound and SOUNDKIT) then return end
-	local id = SOUNDKIT[kit]
-	if id then pcall(PlaySound, id) end
-end
+-- (turn and hurry sounds: ClientUI, for every game; table sounds: ns.Sound)
 HC.Sound = sound
 
 -- the Hold'em state of my current table
@@ -288,6 +284,12 @@ local function install()
 			st.last = { p = p, kind = kind, to = tonumber(to), put = tonumber(put) }
 			he.lastAct = he.lastAct or {}
 			he.lastAct[p] = st.last
+			-- the action's sound: knock to check, cards tossed to fold, chips otherwise
+			local seat = st.seat[p]
+			if kind == "fold" then ns.Sound.Play("fold")
+			elseif kind == "check" then ns.Sound.Play("check")
+			elseif seat and seat.stack == 0 and (tonumber(put) or 0) > 0 then ns.Sound.Play("allin")
+			elseif (tonumber(put) or 0) > 0 then ns.Sound.Play("chips") end
 			local word = kind == "raise" and ((prev and prev.curBet == 0) and "bets" or "raises to") or (kind .. "s")
 			local amt = kind == "raise" and (" " .. ns.Money(st.last.to)) or kind == "call" and (" " .. ns.Money(st.last.put)) or ""
 			ns.Log(("%s %s%s"):format(ns.Short(p), word, amt))
@@ -305,7 +307,7 @@ local function install()
 		if st.toAct == ns.me and not he.acted then
 			if not applyPre(he) then
 				if not (prev and prev.toAct == ns.me and prev.street == st.street) then
-					sound("READY_CHECK")
+					-- (your-turn bell: ClientUI)
 					if not g.watching then ns.Notify("Your turn" .. ((st.seat[ns.me] and st.curBet > st.seat[ns.me].bet) and (" - " .. ns.Money(st.curBet - st.seat[ns.me].bet) .. " to call") or "") .. ".") end
 				end
 			end
@@ -435,6 +437,7 @@ local function install()
 		local w = first and first.winners[1]
 		he.winCards = (not uncontested and w and hands[w]) and hands[w].cards or nil
 		he.winName = (not uncontested and w and hands[w]) and hands[w].name or nil
+		he.winCat = (not uncontested and w and hands[w]) and hands[w].cat or nil
 		-- chat
 		local lines = {}
 		for _, r in ipairs(pots) do
@@ -507,7 +510,7 @@ function HC:Tick(now)
 	if st and st.toAct == ns.me and not he.acted and he.deadline and not g.watching then
 		if not he.warned and he.deadline - now <= 5 and he.deadline - now > 0 then
 			he.warned = true
-			sound("RAID_WARNING")
+			-- (5-second ticks: ClientUI)
 		end
 	end
 	if he.hand > 0 and not he.my and he.startAt and now - he.startAt > 4 and HC:Seated(he)

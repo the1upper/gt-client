@@ -19,10 +19,10 @@ end
 ns.name = addonName
 ns.isHostBuild = addonName:find("_Host", 1, true) ~= nil
 ns.MEDIA = "Interface\\AddOns\\" .. addonName .. "\\Media\\"
-ns.version = "3.17.0"
+ns.version = "3.26.1"
 -- Protocol version: bumped whenever clients and the house must match.
 -- The house refuses clients below its minimum and tells them to update.
-ns.PROTO = 9 -- 8: spectators, live table listings; 9: Texas Hold'em
+ns.PROTO = 16 -- 8: spectators, live table listings; 9: Texas Hold'em; 10: multi-player Death Roll, High-Low coin; 11: Coin Flip; 12: knockout Acey-Deucey; 13: Acey no-call is out; 14: Battle Slots; 15: double or nothing; 16: 31 Blitz
 _G.GoldenThugget = ns
 
 local floor, abs = math.floor, math.abs
@@ -169,6 +169,17 @@ ns.COIN_ICON = {
 	s = "|TInterface\\MoneyFrame\\UI-SilverIcon:0:0:2:0|t",
 	c = "|TInterface\\MoneyFrame\\UI-CopperIcon:0:0:2:0|t",
 }
+-- Coin icons misplace in text that wraps onto more than one line (a WoW
+-- quirk): such text shows money as colored letters instead.
+local ICON_LETTER = { Gold = "g", Silver = "s", Copper = "c" }
+function ns.CoinLetters(text)
+	if type(text) ~= "string" or not text:find("|T", 1, true) then return text end
+	return (text:gsub("|cffffffff(%d+)|r|TInterface\\MoneyFrame\\UI%-(%a+)Icon[^|]*|t", function(n, kind)
+		local u = ICON_LETTER[kind]
+		return u and ("|cff" .. ns.COIN_COLOR[u] .. n .. u .. "|r") or n
+	end))
+end
+
 function ns.ColorCoins(text)
 	local letters = ns.db and ns.db.settings and ns.db.settings.coinText
 	return (tostring(text):gsub("%f[%w](%d+)([gsc])%f[%W]", function(n, u)
@@ -433,7 +444,10 @@ local DEFAULTS = {
 	host = "Toilet Bowl",   -- the house: only its tables and ledger are trusted (/gt host to change)
 	channel = "GoldenThugget",
 	quiet = false,          -- true: only your turns, results and warnings go to chat
-	alerts = true,          -- pop-up card when the house opens a table and /gt is closed
+	alerts = true,          -- pop-up card when the house opens (or starts) a table and /gt is closed
+	minimap = true,         -- the GT button on the minimap (/gt minimap)
+	watchAlerts = true,     -- the Watch card when a table you skipped starts
+	turnAlerts = true,      -- the your-turn card when the table window is closed
 }
 
 local function initDB()
@@ -461,17 +475,26 @@ end
 -- Slash commands (client)
 ---------------------------------------------------------------------------
 local HELP = {
-	"|cffffd100/gt|r - open/close the window",
+	"|cffffd100/gt|r - open/close the window,  |cffffd100/gt settings|r - the settings window (also the gear on the main window)",
 	"|cffffd100/gt join [id]|r - join the host's newest (or given) open table",
 	"|cffffd100/gt leave|r - leave the table before it locks",
 	"|cffffd100/gt balance|r - your balance with the house,  |cffffd100/gt ledger|r - everyone's,  |cffffd100/gt top|r - lifetime leaderboard",
 	"|cffffd100/gt pay|r - at a mailbox: fill a mail to the host for what you owe",
-	"|cffffd100/gt table|r - show/hide the table window,  |cffffd100/gt quiet|r - quiet chat on/off,  |cffffd100/gt alerts|r - new-table pop-ups on/off,  |cffffd100/gt watch|r - watch the newest table",
-	"|cffffd100/gt coins|r - coin icons or g/s/c letters for money,  |cffffd100/gt resetpos|r - put every Golden Thugget window back in the middle",
+	"|cffffd100/gt table|r - show/hide the table window,  |cffffd100/gt quiet|r - quiet chat on/off,  |cffffd100/gt alerts|r - table pop-ups on/off,  |cffffd100/gt minimap|r - minimap button on/off,  |cffffd100/gt watch|r - watch the newest table",
+	"|cffffd100/gt sound|r - all sounds on/off (|cffffd100/gt sound test|r plays each one),  |cffffd100/gt coins|r - coin icons or g/s/c letters for money,  |cffffd100/gt resetpos|r - put every Golden Thugget window back in the middle",
 	"|cffffd100/gt host <First Last>|r - set which player is the house (only their tables/ledger are trusted)",
 	"|cffffd100/gt channel <name>|r - custom channel name (must match the host's)",
 	"|cffffd100/gt speedtest <First Last>|r - measure how fast addon whispers get through to another character (both need v3.14.2+; the full-size phase needs v3.14.3)",
 }
+
+-- money as letters (1g 50s) or coin icons
+function ns.SetCoinText(on)
+	ns.db.settings.coinText = on and true or false
+	ns.Notify("Money shows as " .. (on and "letters (1g 50s)." or "coin icons.") .. " Windows update as they refresh.")
+	if ns.ClientUI then ns.ClientUI:Refresh() end
+	if ns.HostUI then ns.HostUI:Refresh() end
+	if ns.SettingsUI then ns.SettingsUI:Refresh() end
+end
 
 local function words(msg)
 	local t = {}
@@ -513,15 +536,20 @@ local function slash(msg)
 		ns.Notify(("Your addon: %s.  The house: %s."):format(ns.version, hv or "unknown (no table open)"))
 	elseif cmd == "watch" then
 		ns.Client:Watch(a[2])
+	elseif cmd == "settings" or cmd == "options" or cmd == "config" then
+		ns.SettingsUI:Toggle()
 	elseif cmd == "alerts" then
 		local v = (a[2] or ""):lower()
-		ns.db.settings.alerts = v == "on" or (v == "" and ns.db.settings.alerts == false)
-		ns.Notify("New-table pop-ups " .. (ns.db.settings.alerts and "on." or "off."))
+		local on = v == "on" or (v == "" and ns.db.settings.alerts == false)
+		ns.db.settings.alerts, ns.db.settings.watchAlerts = on, on
+		ns.Notify("Table pop-ups (new table and game starting) " .. (on and "on." or "off."))
+		if ns.SettingsUI then ns.SettingsUI:Refresh() end
+	elseif cmd == "minimap" then
+		ns.Minimap:Slash(a[2])
 	elseif cmd == "coins" then
-		ns.db.settings.coinText = not ns.db.settings.coinText
-		ns.Notify("Money shows as " .. (ns.db.settings.coinText and "letters (1g 50s)." or "coin icons.") .. " Windows update as they refresh.")
-		if ns.ClientUI then ns.ClientUI:Refresh() end
-		if ns.HostUI then ns.HostUI:Refresh() end
+		ns.SetCoinText(not ns.db.settings.coinText)
+	elseif cmd == "sound" or cmd == "sounds" then
+		ns.Sound.Slash(a[2])
 	elseif cmd == "resetpos" then
 		ns.W.ResetPositions()
 		ns.Notify("Window positions reset.")
@@ -575,6 +603,7 @@ ns.On("PLAYER_LOGIN", function()
 	ns.Client:Init()
 	ns.ClientUI:Init()
 	ns.CardUI:Init()
+	if ns.Minimap then ns.Minimap:Init() end
 
 	SLASH_GOLDENTHUGGET1 = "/gt"
 	SLASH_GOLDENTHUGGET2 = "/thugget"

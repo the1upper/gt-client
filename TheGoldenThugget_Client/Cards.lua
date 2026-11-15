@@ -214,30 +214,137 @@ end
 -- Acey-Deucey
 ---------------------------------------------------------------------------
 -- No card can land strictly between a pair or two adjacent ranks (aces high).
-function K.AceyNoChance(c1, c2)
-	return math.abs(K.Value(c1) - K.Value(c2)) <= 1
+-- Acey-Deucey (knockout): each player gets two cards and calls whether their
+-- third card lands IN between them or OUT (a card matching one of the two, a
+-- "post", counts as outside). On a pair the call is HIGHER or LOWER, and a
+-- third card of the same rank is wrong either way.
+function K.AceyPair(c1, c2) return K.Value(c1) == K.Value(c2) end
+
+function K.AceyChoices(c1, c2)
+	if K.AceyPair(c1, c2) then return "hi", "lo" end
+	return "in", "out"
 end
 
--- Largest bet allowed (copper): at most the max bet and at most the pot.
-function K.AceyMaxBet(pot, maxBet)
-	return math.max(0, math.min(maxBet, pot))
+function K.AceyValidChoice(c1, c2, choice)
+	local a, b = K.AceyChoices(c1, c2)
+	return choice == a or choice == b
 end
 
--- Returns outcome, delta for the player (copper).
---   win  : strictly between    -> +bet (from the pot)
---   post : matches either card -> -2x bet (into the pot)
---   lose : outside             -> -bet (into the pot)
-function K.AceyResolve(c1, c2, c3, bet)
-	if bet <= 0 or not c3 then return "pass", 0 end
-	local a, b = K.Value(c1), K.Value(c2)
+function K.AceyCorrect(c1, c2, c3, choice)
+	local a, b, v = K.Value(c1), K.Value(c2), K.Value(c3)
+	if a == b then
+		if choice == "hi" then return v > a end
+		if choice == "lo" then return v < a end
+		return false
+	end
 	local lo, hi = math.min(a, b), math.max(a, b)
-	local v = K.Value(c3)
-	if v > lo and v < hi then return "win", bet end
-	if v == lo or v == hi then return "post", -2 * bet end
-	return "lose", -bet
+	local inside = v > lo and v < hi
+	if choice == "in" then return inside end
+	if choice == "out" then return not inside end
+	return false
 end
 
--- Acey table closing: unclaimed pot is split evenly among players still seated.
+K.ACEY_WORD = { ["in"] = "IN", out = "OUT", hi = "HIGHER", lo = "LOWER" }
+
+-- Round outcome. picks[p] = choice (nil: no call - timed out or left),
+-- cards[p] = { c1, c2, c3 }. Returns survivors (seat order) and how it went:
+--   false  : the right calls go on, everyone else is out
+--   true   : nobody who called was right - the callers go again (no call is still out)
+--   "idle" : nobody called at all - nobody can be knocked out fairly; the table
+--            closes and the pot is split among them
+function K.AceyRound(alive, cards, picks)
+	local right, callers = {}, {}
+	for _, p in ipairs(alive) do
+		local h = cards[p]
+		if h and picks[p] then
+			callers[#callers + 1] = p
+			if K.AceyCorrect(h[1], h[2], h[3], picks[p]) then right[#right + 1] = p end
+		end
+	end
+	if #callers == 0 then return { unpack(alive) }, "idle" end
+	if #right == 0 then return callers, true end
+	return right, false
+end
+
+---------------------------------------------------------------------------
+-- 31 Blitz. Three cards; your score is the best total in one suit (Ace 11,
+-- face cards 10, others their number), up to 31. Three of a kind is 30.5.
+-- Scores are kept in half points: 62 = 31 (a blitz), 61 = three of a kind.
+---------------------------------------------------------------------------
+function K.BlitzValue(code)
+	local r = code:sub(1, 1)
+	if r == "A" then return 11 end
+	if r == "K" or r == "Q" or r == "J" or r == "T" then return 10 end
+	return tonumber(r)
+end
+
+local SUIT_SYM = { s = "Spades", h = "Hearts", d = "Diamonds", c = "Clubs" }
+-- score (half points), and a short name like "27 in Spades", "Three 7s (30.5)", "BLITZ 31"
+function K.BlitzScore(cards)
+	if #cards >= 3 then
+		local r = cards[1]:sub(1, 1)
+		if cards[2]:sub(1, 1) == r and cards[3]:sub(1, 1) == r and #cards == 3 then
+			local word = r == "T" and "10" or r
+			return 61, ("Three %ss (30.5)"):format(word)
+		end
+	end
+	local best, bestSuit = 0, "s"
+	local sums = {}
+	for _, c in ipairs(cards) do
+		local s = c:sub(2, 2)
+		sums[s] = (sums[s] or 0) + K.BlitzValue(c)
+	end
+	for s, v in pairs(sums) do if v > best or (v == best and s < bestSuit) then best, bestSuit = v, s end end
+	if best == 31 then return 62, "BLITZ 31" end
+	return best * 2, ("%d in %s"):format(best, SUIT_SYM[bestSuit])
+end
+
+function K.BlitzText(half) -- 61 -> "30.5", 54 -> "27"
+	if half % 2 == 1 then return ("%d.5"):format((half - 1) / 2) end
+	return tostring(half / 2)
+end
+
+-- Who loses lives this round. hands[p] = 3 codes; reason = "blitz" | "knock" | "deck".
+-- A blitz: everyone without 31 loses one. Otherwise the lowest score loses one
+-- (all tied at the bottom do); the knocker loses two if they're among them.
+-- Players in out[] (left, or missed two turns) lose all their lives.
+-- Returns losses {p = n}.
+function K.BlitzLosses(alive, hands, reason, knocker, out)
+	local losses = {}
+	local scores = {}
+	for _, p in ipairs(alive) do scores[p] = (K.BlitzScore(hands[p])) end
+	if reason == "blitz" then
+		for _, p in ipairs(alive) do if scores[p] < 62 then losses[p] = 1 end end
+	else
+		local low
+		for _, p in ipairs(alive) do if not low or scores[p] < low then low = scores[p] end end
+		for _, p in ipairs(alive) do
+			if scores[p] == low then losses[p] = (reason == "knock" and p == knocker) and 2 or 1 end
+		end
+	end
+	for p in pairs(out or {}) do if ns.IndexOf(alive, p) then losses[p] = 99 end end
+	return losses
+end
+
+-- Apply losses. If nobody would be left standing, the round doesn't count
+-- (again = true) - except for anyone who left, who is out regardless.
+function K.BlitzApply(alive, lives, losses, out)
+	local new, survivors = {}, {}
+	for _, p in ipairs(alive) do
+		new[p] = math.max(0, (lives[p] or 0) - (losses[p] or 0))
+		if new[p] > 0 then survivors[#survivors + 1] = p end
+	end
+	if #survivors == 0 then
+		-- everyone went out together: replay it (the leavers still go)
+		for _, p in ipairs(alive) do
+			if not (out and out[p]) then new[p] = lives[p]; survivors[#survivors + 1] = p end
+		end
+		return new, survivors, true
+	end
+	return new, survivors, false
+end
+
+-- Acey table closing early: the pot is split evenly among the players still in.
 function K.AceyRefund(pot, seats)
 	local d = {}
 	if #seats == 0 or pot <= 0 then return d end

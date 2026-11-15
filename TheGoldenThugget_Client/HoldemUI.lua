@@ -167,18 +167,25 @@ function UI:Build()
 	self.result = W.Text(felt, 14, { 1, 0.93, 0.6 }, "OUTLINE")
 	self.result:SetPoint("CENTER", 0, -52)
 	self.result:SetJustifyH("CENTER")
-	self.result:SetWidth(440)
+	W.Fit(self.result, 440, 4)
+	self.result:SetJustifyV("MIDDLE")
 
 	self.seats = {}
 	for i = 1, 6 do
 		local s = seatPanel(felt)
 		local x, y = SPOTS[i][1], SPOTS[i][2]
 		s:SetPoint("CENTER", felt, "CENTER", x, y)
-		-- small cards above the panel; bets toward the middle; dealer button beside
-		for k = 1, 2 do s.cards[k]:Home("BOTTOM", s, "TOP", (k - 1.5) * 44, 2) end
+		-- small cards above the side seats; beside the bottom seat (left: above it
+		-- is the result line and the board) and the top seat (right: above it is
+		-- the window's header). Bets toward the middle; dealer button beside.
+		for k = 1, 2 do
+			if i == 1 then s.cards[k]:Home("RIGHT", s, "LEFT", -8 - (2 - k) * 46, 0)
+			elseif i == 4 then s.cards[k]:Home("LEFT", s, "RIGHT", 8 + (k - 1) * 46, 0)
+			else s.cards[k]:Home("BOTTOM", s, "TOP", (k - 1.5) * 44, 2) end
+		end
 		s.bet:SetPoint("CENTER", felt, "CENTER", x * 0.55, y * 0.42 + (y > 0 and -18 or 14))
 		s.dealer:SetPoint("LEFT", s, "RIGHT", 4, 0)
-		if x > 0 then s.dealer:ClearAllPoints(); s.dealer:SetPoint("RIGHT", s, "LEFT", -4, 0) end
+		if x > 0 or i == 4 then s.dealer:ClearAllPoints(); s.dealer:SetPoint("RIGHT", s, "LEFT", -4, 0) end
 		self.seats[i] = s
 	end
 	-- your own cards, big, left of your seat
@@ -791,6 +798,7 @@ function UI:Refresh()
 			local mine = seated and (r.net[ns.me] or 0) or nil
 			local line = table.concat(t, ", ") .. (he.winName and (" - " .. he.winName) or "")
 			if he.hands and he.hands > 1 then line = ("Hand %d of %d: "):format(he.hand, he.hands) .. line end
+			if he.winCat and he.winCat >= 7 and self.pop.key ~= ("holdem:%s:%s"):format(g.id or "?", he.hand or 0) then self.pop.jackpot = true end -- quads or better
 			self.pop:Play(("holdem:%s:%s"):format(g.id or "?", he.hand or 0), mine, line)
 		end
 	else

@@ -80,6 +80,7 @@ local function NewCard(parent, w, h)
 	function f:SlideFrom(dx, dy, delay)
 		local h = self.home
 		if not h then return end
+		ns.Sound.Play("card_deal", delay)
 		self:ClearAllPoints()
 		self:SetPoint(h[1], h[2], h[3], h[4] + dx, h[5] + dy)
 		self:SetAlpha(0)
@@ -92,6 +93,7 @@ local function NewCard(parent, w, h)
 	-- squeeze to nothing, swap the face, stretch back
 	function f:FlipTo(code, delay)
 		if self.code == code then return end
+		if code then ns.Sound.Play("card_flip", (delay or 0) + 0.14) end
 		self.flipping = true
 		tween(0.14, delay, function(e) self:SetWidth(math.max(0.5, self.w * (1 - e))) end, function()
 			self:Set(code)
@@ -201,62 +203,16 @@ function UI:Build()
 	W.Fit(self.myStatus, 330, 3)
 	self.inBtn = W.Button(self.myArea, "IN", 130, 32)
 	self.inBtn:SetPoint("BOTTOMLEFT", 260, 8)
-	self.inBtn:SetScript("OnClick", function() ns.CardClient:Decide("in") end)
+	self.inBtn:SetScript("OnClick", function()
+		local g = ns.Client.game
+		if g and g.type == "acey" then ns.CardClient:Pick((ns.CardClient:PickChoices())) else ns.CardClient:Decide("in") end
+	end)
 	self.outBtn = W.Button(self.myArea, "OUT", 90, 32)
 	self.outBtn:SetPoint("LEFT", self.inBtn, "RIGHT", 10, 0)
-	self.outBtn:SetScript("OnClick", function() ns.CardClient:Decide("out") end)
-
-	-------------------------------------------------- Acey layout
-	local acey = CreateFrame("Frame", nil, f)
-	acey:SetPoint("TOPLEFT", 20, -60)
-	acey:SetPoint("BOTTOMRIGHT", -20, 46)
-	self.acey = acey
-	self.aceyRows = {}
-	for i = 1, 8 do
-		local r = W.Text(acey, 12, W.C.text)
-		r:SetPoint("TOPLEFT", 6, -6 - (i - 1) * 20)
-		r:SetWidth(170)
-		self.aceyRows[i] = r
-	end
-	local center = CreateFrame("Frame", nil, acey)
-	center:SetPoint("TOPLEFT", 190, -10)
-	center:SetSize(400, 170)
-	self.aceyCenter = center
-	self.aceyCards = {}
-	for k = 1, 3 do
-		local c = NewCard(center, 84, 118)
-		local x = ({ -110, 110, 0 })[k]
-		c:Home("CENTER", center, "CENTER", x, 0)
-		self.aceyCards[k] = c
-	end
-	self.slot = center:CreateTexture(nil, "BACKGROUND")
-	self.slot:SetSize(88, 122)
-	self.slot:SetPoint("CENTER", center, "CENTER", 0, 0)
-	self.slot:SetColorTexture(0, 0, 0, 0.25)
-	self.turnText = W.Text(acey, 16, W.C.gold)
-	self.turnText:SetPoint("TOP", center, "BOTTOM", 0, -6)
-	self.outcomeText = W.Text(acey, 16, W.C.text)
-	self.outcomeText:SetPoint("TOP", self.turnText, "BOTTOM", 0, -6)
-
-	local bet = CreateFrame("Frame", nil, acey)
-	bet:SetPoint("BOTTOMLEFT", 190, 6)
-	bet:SetSize(400, 40)
-	self.betArea = bet
-	local bl = W.Text(bet, 12, W.C.gold)
-	bl:SetText("Bet (e.g. 2g 50s):")
-	bl:SetPoint("LEFT", 0, 0)
-	self.betBox = W.EditBox(bet, 80)
-	self.betBox:SetPoint("LEFT", bl, "RIGHT", 10, 0)
-	self.betBox:SetScript("OnEnterPressed", function(e) e:ClearFocus(); ns.CardClient:Bet(e:GetText()) end)
-	self.betBtn = W.Button(bet, "Bet", 60, 26)
-	self.betBtn:SetPoint("LEFT", self.betBox, "RIGHT", 8, 0)
-	self.betBtn:SetScript("OnClick", function() ns.CardClient:Bet(UI.betBox:GetText()) end)
-	self.maxBtn = W.Button(bet, "Max", 50, 26)
-	self.maxBtn:SetPoint("LEFT", self.betBtn, "RIGHT", 4, 0)
-	self.maxBtn:SetScript("OnClick", function() UI.betBox:SetText(ns.MoneyPlain(ns.CardClient:MaxBet())) end)
-	self.passBtn = W.Button(bet, "Pass", 60, 26)
-	self.passBtn:SetPoint("LEFT", self.maxBtn, "RIGHT", 4, 0)
-	self.passBtn:SetScript("OnClick", function() ns.CardClient:Bet(0) end)
+	self.outBtn:SetScript("OnClick", function()
+		local g = ns.Client.game
+		if g and g.type == "acey" then ns.CardClient:Pick(select(2, ns.CardClient:PickChoices())) else ns.CardClient:Decide("out") end
+	end)
 
 	self.turnGlow = W.TurnGlow(f)
 	self.pop = W.ResultPop(f, 30)
@@ -314,16 +270,25 @@ function UI:Deal()
 			if c.myHand then card:FlipTo(c.myHand[k], delay + 0.45 + k * 0.08) end
 			delay = delay + 0.06
 		end
-	else
-		local t = c.turn
-		if not t then return end
-		for k = 1, 2 do
-			local card = self.aceyCards[k]
-			card:Set(nil)
-			card:SlideFrom(0, 150, (k - 1) * 0.12)
-			card:FlipTo(k == 1 and t.c1 or t.c2, 0.5 + k * 0.12)
+	elseif g.type == "acey" then
+		-- each player's two cards face up, the third face down between them
+		local delay = 0
+		local function deal(cards, h, dx, dy)
+			for _, k in ipairs({ 1, 3, 2 }) do
+				local card = cards[k]
+				card:Set(nil)
+				card:SetAlpha(1)
+				card:SlideFrom(dx, dy, delay)
+				if k ~= 2 then card:FlipTo(k == 1 and h[1] or h[2], delay + 0.45) end
+				delay = delay + 0.05
+			end
 		end
-		self.aceyCards[3]:Hide()
+		for i, p in ipairs(others(c)) do
+			local s, h = self.seats[i], c.ac and c.ac[p]
+			if s and h then deal(s.cards, h, 0, 140) end
+		end
+		local mine = c.ac and c.ac[ns.me]
+		if mine and not g.watching then deal(self.myCards, mine, 240, 220) end
 	end
 end
 
@@ -345,15 +310,17 @@ end
 
 function UI:Reveal()
 	if not (self.frame and self.frame:IsShown()) then return end
-	local c = ns.Client.game and ns.Client.game.cards
-	if not c then return end
+	local g = ns.Client.game
+	local c = g and g.cards
+	if not (c and c.ac) then return end
 	self:Refresh()
-	if c.third then
-		local card = self.aceyCards[3]
-		card:Set(nil)
-		card:SlideFrom(0, 150, 0)
-		card:FlipTo(c.third, 0.45)
+	-- every third card turns over at once (yours a beat later, for the drama)
+	for i, p in ipairs(others(c)) do
+		local s, h = self.seats[i], c.ac[p]
+		if s and h and h[3] then s.cards[2]:FlipTo(h[3], 0.05 * i) end
 	end
+	local mine = c.ac[ns.me]
+	if mine and mine[3] and not g.watching then self.myCards[2]:FlipTo(mine[3], 0.5) end
 end
 
 ---------------------------------------------------------------------------
@@ -362,7 +329,7 @@ end
 function UI:Tick()
 	local g = ns.Client.game
 	local c = g and g.cards
-	if c and c.deadline and (c.phase == "decide" or c.phase == "bet") then
+	if c and c.deadline and (c.phase == "decide" or c.phase == "pick") then
 		local left = math.max(0, math.ceil(c.deadline - GetTime()))
 		self.timer:SetText((left <= 5 and "|cffff6060" or "|cffffffff") .. left .. "s|r")
 	else
@@ -390,7 +357,7 @@ function UI:Refresh()
 		self.title:SetText("The Golden Thugget")
 		self.pot:SetText("")
 		self.info:SetText("You're not at a card table.")
-		self.guts:Hide(); self.acey:Hide()
+		self.guts:Hide()
 		self.leave:SetEnabled(false)
 		self.pop:Hide()
 		return
@@ -406,7 +373,7 @@ function UI:Refresh()
 	self.info:SetText(info)
 
 	if g.type == "guts" then
-		self.guts:Show(); self.acey:Hide()
+		self.guts:Show()
 		self.myArea:SetShown(not g.watching)
 		local list = others(c)
 		for i, s in ipairs(self.seats) do
@@ -472,6 +439,8 @@ function UI:Refresh()
 		self.myStatus:SetText(st)
 		local canDecide = c.phase == "decide" and c.myHand and not c.myDecision and ns.IndexOf(c.seats, ns.me)
 		self.inBtn:SetText((g.param or 0) > 0 and ("IN  +" .. ns.Money(g.param)) or "IN")
+		self.outBtn:SetText("OUT")
+		self.outBtn:SetWidth(90)
 		self.inBtn:SetEnabled(canDecide and true or false)
 		self.outBtn:SetEnabled(canDecide and true or false)
 		-- IN/OUT only while there's a decision to make (and after, showing what you picked)
@@ -483,56 +452,8 @@ function UI:Refresh()
 			local seated = ns.IndexOf(c.seats, ns.me) and not g.watching
 			self.pop:Play(("guts:%s:%s"):format(g.id or "?", c.round or 0), (seated and c.handNet) and (c.handNet[ns.me] or 0) or nil, c.result) -- no handNet = pot carried over
 		end
-	else
-		self.guts:Hide(); self.acey:Show()
-		for i, r in ipairs(self.aceyRows) do
-			local p = c.seats[i]
-			if p then
-				local turn = c.turn and c.turn.player == p
-				r:SetText((turn and "|cffffd100>|r " or "   ") .. ns.Who(p) .. "  " .. money(c.deltas[p] or 0))
-				r:Show()
-			else
-				r:Hide()
-			end
-		end
-		local t = c.turn
-		if t then
-			for k = 1, 2 do
-				local card = self.aceyCards[k]
-				card:Show()
-				local want = k == 1 and t.c1 or t.c2
-				if card.code ~= want and not card.flipping then card:Set(want) end
-			end
-			if c.third then
-				self.aceyCards[3]:Show()
-				if self.aceyCards[3].code ~= c.third then self.aceyCards[3]:Set(c.third) end
-			else
-				self.aceyCards[3]:Hide()
-			end
-			local who = t.player == ns.me and "Your turn" or (ns.Who(t.player) .. "'s turn")
-			self.turnText:SetText(who)
-			local words = { win = "|cff40ff40In between - wins!|r", lose = "|cffff6060Outside - loses|r", post = "|cffff6060Hit the post - pays double!|r",
-				pass = "Passed", nochance = "No gap - skipped" }
-			if c.outcome then
-				self.outcomeText:SetText(words[c.outcome] .. (c.lastBet and c.lastBet > 0 and ("  (" .. ns.Money(c.lastBet) .. ")") or ""))
-				-- your own turn's result pops up
-				if t.player == ns.me and not g.watching and not g.review and c.lastBet and c.lastBet > 0 then
-					local _, delta = K.AceyResolve(t.c1, t.c2, c.third, c.lastBet)
-					local text = ({ win = "In between", lose = "Outside", post = "Hit the post - pays double" })[c.outcome]
-					self.pop:Play(("acey:%s:%s"):format(g.id or "?", c.n or 0), delta, text)
-				end
-			elseif c.phase == "bet" then
-				self.outcomeText:SetText(t.player == ns.me and ("Bet up to " .. ns.Money(ns.CardClient:MaxBet())) or "betting...")
-			else
-				self.outcomeText:SetText("")
-			end
-		else
-			for k = 1, 3 do self.aceyCards[k]:Hide() end
-			self.turnText:SetText("Waiting for the deal...")
-			self.outcomeText:SetText("")
-		end
-		local myTurn = t and t.player == ns.me and c.phase == "bet" and not c.betSent
-		self.betArea:SetShown(myTurn and true or false)
+	elseif g.type == "acey" then
+		self:AceyRefresh(g, c)
 	end
 	-- table over: your total, when it's more than the one hand you just saw
 	if c.phase == "closed" and not g.review and (g.type == "acey" or (g.hands or 1) ~= 1) then
@@ -541,6 +462,110 @@ function UI:Refresh()
 			"Table closed - " .. (seated and "your total for the table" or "final standings are in the log"))
 	end
 	self:Tick()
+end
+
+-- Acey-Deucey: a tile per player (their two cards, the third between them), your
+-- own hand big at the bottom with the two calls your cards allow
+local WORD = K.ACEY_WORD
+function UI:AceyRefresh(g, c)
+	self.guts:Show()
+	local me = not g.watching and ns.IndexOf(c.seats, ns.me)
+	self.myArea:SetShown(me and true or false)
+	local outAt = c.outAt or {}
+	local alive = {}
+	for _, p in ipairs(c.alive or {}) do alive[p] = true end
+	local function status(p)
+		if c.winner == p then return "|cffffd100WINNER|r  +" .. ns.Money(c.wonPot or 0), "win" end
+		local o = outAt[p]
+		if o and not (c.lastOut and ns.IndexOf(c.lastOut, p)) then
+			return o.left and "|cff888888left the table|r" or ("|cff888888out in round %d|r"):format(o.round), "gone"
+		end
+		local h = c.ac and c.ac[p]
+		if c.phase == "pick" then
+			if not h then return "", "gone" end
+			if p == ns.me and c.myPick then return "you called |cffffd100" .. WORD[c.myPick] .. "|r", "wait" end
+			return (c.decided and c.decided[p]) and "|cffffd100called|r" or "|cffaaaaaathinking...|r", "wait"
+		end
+		if c.picks and h and h[3] then
+			local call = c.picks[p]
+			if c.again == "idle" then return "|cffaaaaaano call|r", "wait" end
+			if not call then return "|cffff6060no call - OUT|r", "out" end
+			local right = K.AceyCorrect(h[1], h[2], h[3], call)
+			if right then return "|cff40ff40" .. WORD[call] .. " - right|r", "right" end
+			return "|cffff6060" .. WORD[call] .. " - " .. (c.again and "wrong (goes again)" or "OUT") .. "|r", c.again and "wait" or "out"
+		end
+		return c.round == 0 and "" or "still in", "wait"
+	end
+	local list = others(c)
+	for i, s in ipairs(self.seats) do
+		local p = list[i]
+		if p then
+			s:Show()
+			s.name:SetText(ns.Who(p) .. "  " .. money(c.deltas[p] or 0))
+			local text, kind = status(p)
+			s.status:SetText(text)
+			local h = c.ac and c.ac[p]
+			for k = 1, 3 do
+				local card = s.cards[k]
+				if not h or kind == "gone" then card:Hide() else
+					card:Show()
+					local face = (k == 1 and h[1]) or (k == 3 and h[2]) or h[3]
+					if not card.flipping and card.code ~= face and (k ~= 2 or face) then card:Set(face) end
+					card:SetAlpha(kind == "out" and 0.4 or 1)
+				end
+			end
+			s:SetAlpha(kind == "gone" and 0.55 or 1)
+			s:SetBackdropBorderColor(GOLD[1], GOLD[2], GOLD[3], (kind == "right" or kind == "win") and 0.95 or 0.35)
+		else
+			s:Hide()
+		end
+	end
+	-- your hand
+	local h = c.ac and c.ac[ns.me]
+	for k = 1, 3 do
+		local card = self.myCards[k]
+		if h and me then
+			card:Show()
+			local face = (k == 1 and h[1]) or (k == 3 and h[2]) or h[3]
+			if not card.flipping and card.code ~= face and (k ~= 2 or face) then card:Set(face) end
+		else
+			card:Hide()
+		end
+	end
+	local a, b = "in", "out"
+	if h then a, b = K.AceyChoices(h[1], h[2]) end
+	local headline, st = "", ""
+	local text, kind = status(ns.me)
+	if c.winner == ns.me then
+		headline, st = "|cffffd100You win!|r", ("Last one standing - the pot is yours (%s)."):format(ns.Money(c.wonPot or 0))
+	elseif kind == "gone" or kind == "out" then
+		headline = "|cffff6060You're out|r"
+		st = c.winner and (ns.Who(c.winner) .. " won the pot.") or (#(c.alive or {}) .. " still in.")
+	elseif c.phase == "pick" and h then
+		if a == "hi" then headline = "A pair - HIGHER or LOWER?"
+		elseif math.abs(K.Value(h[1]) - K.Value(h[2])) == 1 then headline = "Nothing in between - OUT can't lose"
+		else headline = "IN or OUT?" end
+		st = c.myPick and ("You called |cffffd100" .. WORD[c.myPick] .. "|r - waiting for the others") or
+			("Round %d - %d still in. Call it before the clock runs out - no call and you're out."):format(c.round, #(c.alive or {}))
+	elseif c.picks and h then
+		headline = text
+		st = c.winner and (ns.Who(c.winner) .. " takes the pot.") or c.again == "idle" and "Nobody called in time - the pot is split." or
+			c.again and "Nobody who called was right - they go again." or
+			(#(c.alive or {}) .. " still in - next round coming.")
+	else
+		headline = c.round == 0 and "Waiting for the deal..." or ""
+	end
+	self.myHandName:SetText(headline)
+	self.myStatus:SetText(st)
+	local can = ns.CardClient:CanPick()
+	self.inBtn:SetText(WORD[a])
+	self.outBtn:SetText(WORD[b])
+	self.outBtn:SetWidth(130)
+	local picking = c.phase == "pick" and h and me and alive[ns.me]
+	self.inBtn:SetShown(picking and true or false)
+	self.outBtn:SetShown(picking and true or false)
+	self.inBtn:SetEnabled(can)
+	self.outBtn:SetEnabled(can)
 end
 
 function UI:Init() end

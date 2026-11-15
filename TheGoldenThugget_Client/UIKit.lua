@@ -49,6 +49,12 @@ function W.Fit(fs, width, lines)
 	if fs.SetNonSpaceWrap then fs:SetNonSpaceWrap(false) end
 	if lines and fs.SetMaxLines then fs:SetMaxLines(lines) end
 	fs:SetJustifyV("TOP")
+	-- text that may wrap gets money as letters (coin icons misplace when text wraps)
+	if (not lines or lines > 1) and not fs.coinSafe then
+		fs.coinSafe = true
+		local set = fs.SetText
+		fs.SetText = function(self, t) return set(self, ns.CoinLetters(t)) end
+	end
 	return fs
 end
 
@@ -580,14 +586,6 @@ end
 --   each outcome has its own sound. Plays once per key; click to dismiss.
 ---------------------------------------------------------------------------
 local COIN = "Interface\\Icons\\INV_Misc_Coin_01"
-local function sound(names, fallback)
-	if ns.hush or not PlaySound then return end
-	for _, n in ipairs(names) do
-		if SOUNDKIT and SOUNDKIT[n] then pcall(PlaySound, SOUNDKIT[n]) return end
-	end
-	if fallback then pcall(PlaySound, fallback) end
-end
-W.Sound = sound
 
 function W.ResultPop(f, yOffset, w, h)
 	local p = CreateFrame("Button", nil, f, "BackdropTemplate")
@@ -687,8 +685,8 @@ function W.ResultPop(f, yOffset, w, h)
 		self.t0 = GetTime()
 		self:SetAlpha(0)
 		self:Show()
-		if won then sound({ "LOOT_WINDOW_COIN_SOUND", "IG_BACKPACK_COIN_OK" }, 120)
-		elseif lost then sound({ "IG_QUEST_FAILED", "IG_QUEST_LOG_ABANDON_QUEST" }, 847) end
+		if self.jackpot then ns.Sound.Play("jackpot") elseif ns.Sound then ns.Sound.Result(delta) end
+		self.jackpot = nil
 	end
 	-- forget the last result (new table): the next one plays even with the same key
 	function p:Reset() self.key = nil; self.queue = {}; self:Hide() end

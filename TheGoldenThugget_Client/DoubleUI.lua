@@ -99,11 +99,11 @@ function UI:Refresh()
 	local meLoser = d.loser == ns.me
 	local other = meLoser and d.winner or d.loser
 	if meLoser then
-		self.body:SetText(("You owe %s %s\nFlip a coin for double or nothing?\nMax loss: |cffffd100%s|r"):format(
-			ns.Who(other), ns.Money(d.amount), ns.Money(2 * d.amount)))
+		self.body:SetText(("You owe %s %s\nFlip a coin for double or nothing?\nMax loss: |cffffd100%s|r%s"):format(
+			ns.Who(other), ns.Money(d.amount), ns.Money(2 * d.amount), d.test and "  |cffff6161(test)|r" or ""))
 	else
-		self.body:SetText(("%s owes you %s\nFlip a coin for double or nothing?\nMax win: |cffffd100%s|r"):format(
-			ns.Who(other), ns.Money(d.amount), ns.Money(2 * d.amount)))
+		self.body:SetText(("%s owes you %s\nFlip a coin for double or nothing?\nMax win: |cffffd100%s|r%s"):format(
+			ns.Who(other), ns.Money(d.amount), ns.Money(2 * d.amount), d.test and "  |cffff6161(test)|r" or ""))
 	end
 	local answered = d.answer ~= nil
 	local open = not d.result and not answered and not d.expired

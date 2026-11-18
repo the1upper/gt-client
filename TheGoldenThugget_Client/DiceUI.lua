@@ -371,7 +371,7 @@ function UI:Refresh()
 	if g.type == "highlow" and g.wager and g.wager > 0 then
 		extra = "  |cff9e948a" .. ns.Money(ns.Games.HighLowUnit(g.wager)) .. "|cff9e948a a point|r"
 	end
-	self.title:SetText(("%s  %s%s"):format(def.name, ns.Money(g.wager or 0), extra))
+	self.title:SetText(("%s%s  %s%s"):format(ns.TestTag(g), def.name, ns.Money(g.wager or 0), extra))
 	local d = g.dice
 	local rolls = d and d.rolls or {}
 	-- ROLL only while it can matter to you: gone once the table is over or if you're watching

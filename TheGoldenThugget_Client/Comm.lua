@@ -38,7 +38,14 @@ if Enum and Enum.SendAddonMessageResult then
 	if E.ChannelThrottle then THROTTLED[E.ChannelThrottle] = true end
 end
 
+-- who we've addon-whispered lately (name -> time). WoW answers a whisper to
+-- someone offline with "No player named 'X' is currently playing." in chat;
+-- for our own addon whispers that line is noise, so it's filtered (below).
+local whispered = {}
+Comm.offline = {} -- name -> when WoW last told us they're offline
+
 local function rawSend(item)
+	if item.chat == "WHISPER" and item.target then whispered[item.target] = GetTime() end
 	if item.bnid then
 		local ok = pcall(BNSendGameData, item.bnid, PREFIX, item.msg)
 		return true -- either sent or not retryable
@@ -123,13 +130,58 @@ local function hideFromChat()
 	end
 end
 
+-- Channel numbers go to the lowest free slot, and WoW joins General (/1),
+-- Trade and LocalDefense a few seconds after login. Joining ours before them
+-- would push General off /1, so we only join once slot 1 belongs to someone
+-- else - or, for players who've left every public channel, after a minute.
+-- (pure, so it can be tested: list = { [id] = name } of joined channels)
+function Comm.ChannelSlotOK(list, ours, sinceLogin)
+	ours = (ours or ""):lower()
+	local first = list[1]
+	if first and first:lower():gsub("^%d+%.%s*", "") ~= ours then return true end
+	local others = false
+	for _, name in pairs(list) do
+		if name:lower():gsub("^%d+%.%s*", "") ~= ours then others = true end
+	end
+	-- slot 1 free but other channels joined: General was pushed down this
+	-- session; wait (it's back on /1 after a relog). No channels at all: join.
+	return not others and (sinceLogin or 0) > 60
+end
+
+local loginAt = GetTime and GetTime() or 0
+local function joinedChannels()
+	local list = {}
+	if not GetChannelList then return list end
+	local t = { GetChannelList() }
+	for i = 1, #t, 3 do
+		local id, name = t[i], t[i + 1]
+		if type(id) == "number" and type(name) == "string" then list[id] = name end
+	end
+	return list
+end
+
 function Comm:EnsureChannel()
 	local id = self:ChannelId()
 	if id then return id end
+	if not Comm.ChannelSlotOK(joinedChannels(), chanName(), GetTime() - loginAt) then return nil end
 	pcall(JoinTemporaryChannel, chanName())
 	C_Timer.After(1, hideFromChat)
 	C_Timer.After(2, function() Comm:RefreshMembers() end)
 	return self:ChannelId()
+end
+
+-- An older version (or a /reload) left our channel on /1 with General pushed to
+-- /2 or later: step off /1 so General gets it back at the next login.
+function Comm:FixChannelSlot()
+	if self:ChannelId() ~= 1 then return end
+	local others = false
+	for cid, name in pairs(joinedChannels()) do
+		if cid ~= 1 and name:lower():gsub("^%d+%.%s*", "") ~= chanName():lower() then others = true end
+	end
+	if not others then return end
+	pcall(LeaveChannelByName, chanName())
+	wipe(members)
+	ns.Print("Moved the casino's hidden channel off /1 - your General chat goes back to /1 the next time you log in.")
 end
 
 function Comm:LeaveChannel()
@@ -182,7 +234,29 @@ local function initChannel()
 			pcall(ChatFrame_AddMessageEventFilter, e, filter)
 		end
 	end
-	C_Timer.After(5, function() Comm:EnsureChannel() end)
+	-- hide "No player named 'X' is currently playing." when X is someone our addon
+	-- just whispered (e.g. asking an offline house for the ledger at login)
+	if ChatFrame_AddMessageEventFilter and ERR_CHAT_PLAYER_NOT_FOUND_S then
+		local pat = "^" .. ERR_CHAT_PLAYER_NOT_FOUND_S:gsub("[%^%$%(%)%.%[%]%*%+%-%?]", "%%%0"):gsub("%%s", "(.+)", 1) .. "$"
+		pcall(ChatFrame_AddMessageEventFilter, "CHAT_MSG_SYSTEM", function(_, _, msg)
+			local who = type(msg) == "string" and msg:match(pat)
+			if not who then return end
+			local full = ns.Full(who)
+			local t = whispered[who] or (full and whispered[full])
+			if t and GetTime() - t < 15 then
+				if full then Comm.offline[full] = GetTime() end
+				return true
+			end
+		end)
+	end
+	loginAt = GetTime()
+	C_Timer.After(8, function() Comm:FixChannelSlot() end)
+	-- join once General has /1 (checked every few seconds until we're in)
+	local joinTicker, tries = nil, 0
+	joinTicker = C_Timer.NewTicker(4, function()
+		tries = tries + 1
+		if Comm:ChannelId() or Comm:EnsureChannel() or tries > 75 then joinTicker:Cancel() end
+	end)
 	C_Timer.NewTicker(60, function() Comm:RefreshMembers() end)
 end
 

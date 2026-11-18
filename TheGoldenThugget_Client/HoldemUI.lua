@@ -656,7 +656,7 @@ function UI:Refresh()
 		return
 	end
 	local st = he.st
-	self.title:SetText(("Texas Hold'em  %s |cffaaaaaabuy-in|r"):format(ns.Money(he.buyin)))
+	self.title:SetText((ns.TestTag(ns.Client.game) .. "Texas Hold'em  %s |cffaaaaaabuy-in|r"):format(ns.Money(he.buyin)))
 	self.sub:SetText(("Blinds %s / %s    Hand %d of %d"):format(ns.Money(he.sb), ns.Money(he.bb), math.max(1, he.hand), he.hands))
 	local mine = c.deltas[ns.me]
 	local info = g.watching and "|cff9e948aWatching|r" or ("You: " .. W.Signed(mine or 0) .. (he.st and he.hand > 0 and "" or ""))

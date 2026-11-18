@@ -528,16 +528,17 @@ function UI:Toast(a, watch)
 	t.icon:SetGame(a.type)
 	local stake = ns.Money(a.wager) .. (def.wagerLabel and (" " .. def.wagerLabel:lower()) or def.kind == "cards" and " ante" or "")
 	if watch then
-		t.title:SetText(("Starting now: %s  %s"):format(def.name, stake))
+		t.title:SetText(("%sStarting now: %s  %s"):format(ns.TestTag(a), def.name, stake))
 		local n = a.count or (a.players and #a.players) or 0
 		t.detail:SetText(a.outdated and "|cffff6161Update needed|r" or ("%d player%s - come watch"):format(n, n == 1 and "" or "s"))
 		t.join:SetText("Watch")
 		t.join:SetEnabled(not a.outdated)
 	else
-		t.title:SetText(("New table: %s  %s"):format(def.name, stake))
+		t.title:SetText(("%sNew table: %s  %s"):format(ns.TestTag(a), def.name, stake))
 		local block = ns.Client:JoinBlock(a)
 		local seats = a.max and ("   |cff9e948a%d/%d seated|r"):format(a.count or 0, a.max) or ""
 		t.detail:SetText(block and "|cffff6161" .. (a.outdated and "Update needed" or "Over your credit limit") .. "|r"
+			or a.test and ("Test table - no gold changes hands%s"):format(seats)
 			or ("Max loss %s%s%s"):format(ns.Money(ns.Games.WorstCase(a)), ns.Games.PerHand(a) and " a hand" or "", seats))
 		t.join:SetText("Join")
 		t.join:SetEnabled(not block)
@@ -645,7 +646,7 @@ function UI:Detail(r, full)
 		elseif a then
 			local block = C:JoinBlock(a)
 			line = line .. (a.direct and (SEP .. "|cffd9b545invited|r") or "") .. (a.outdated and (SEP .. "|cffff6161update needed|r") or
-				(block and (SEP .. "|cffff6161over credit limit|r")) or (SEP .. ("max loss %s%s"):format(ns.Money(ns.Games.WorstCase(a)), ns.Games.PerHand(a) and " a hand" or "")))
+				(block and (SEP .. "|cffff6161over credit limit|r")) or (a.test and (SEP .. "|cffff6161test - no gold changes hands|r")) or (SEP .. ("max loss %s%s"):format(ns.Money(ns.Games.WorstCase(a)), ns.Games.PerHand(a) and " a hand" or "")))
 		end
 		if full and #r.players > 0 then line = line .. "\nPlayers: " .. ns.ShortList(r.players) end
 		return line .. (full and "" or eyes)
@@ -679,7 +680,7 @@ function UI:FillTable(w, r, full)
 	local def = ns.Games.types[r.type]
 	w.icon:SetGame(r.type)
 	w.icon:SetAlpha((r.status == "closed" or r.status == "cancelled") and 0.6 or 1)
-	local title = ("%s  %s%s"):format(def.name, ns.Money(r.wager or 0), def.wagerLabel and (" |cffece3cc" .. def.wagerLabel:lower() .. "|r") or def.kind == "cards" and " |cffece3ccante|r" or "")
+	local title = ("%s%s  %s%s"):format(ns.TestTag(r), def.name, ns.Money(r.wager or 0), def.wagerLabel and (" |cffece3cc" .. def.wagerLabel:lower() .. "|r") or def.kind == "cards" and " |cffece3ccante|r" or "")
 	if w.name then w.name:SetText(title) else w.title:SetText(title) end
 	w.badge:SetStatus(r.status)
 	w.bar:SetStatus(r.status)

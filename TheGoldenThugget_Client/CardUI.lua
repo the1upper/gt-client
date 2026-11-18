@@ -363,7 +363,7 @@ function UI:Refresh()
 		return
 	end
 	local def = ns.Games.types[g.type]
-	self.title:SetText(def.name .. "  " .. ns.Money(g.wager) .. " |cffaaaaaaante|r")
+	self.title:SetText(ns.TestTag(g) .. def.name .. "  " .. ns.Money(g.wager) .. " |cffaaaaaaante|r")
 	self.pot:SetText("Pot: " .. ns.Money(UI.ShownPot(g)))
 	ns.Client:SetLeaveButton(self.leave, g, g.phase == "playing", "Leave table")
 	local mine = (c.deltas[ns.me] or 0) - UI.Pending(g)

@@ -19,10 +19,10 @@ end
 ns.name = addonName
 ns.isHostBuild = addonName:find("_Host", 1, true) ~= nil
 ns.MEDIA = "Interface\\AddOns\\" .. addonName .. "\\Media\\"
-ns.version = "3.26.1"
+ns.version = "3.27.2"
 -- Protocol version: bumped whenever clients and the house must match.
 -- The house refuses clients below its minimum and tells them to update.
-ns.PROTO = 16 -- 8: spectators, live table listings; 9: Texas Hold'em; 10: multi-player Death Roll, High-Low coin; 11: Coin Flip; 12: knockout Acey-Deucey; 13: Acey no-call is out; 14: Battle Slots; 15: double or nothing; 16: 31 Blitz
+ns.PROTO = 17 -- 17: test tables (TEST tag, nothing on the ledger); 8: spectators, live table listings; 9: Texas Hold'em; 10: multi-player Death Roll, High-Low coin; 11: Coin Flip; 12: knockout Acey-Deucey; 13: Acey no-call is out; 14: Battle Slots; 15: double or nothing; 16: 31 Blitz
 _G.GoldenThugget = ns
 
 local floor, abs = math.floor, math.abs
@@ -486,6 +486,9 @@ local HELP = {
 	"|cffffd100/gt channel <name>|r - custom channel name (must match the host's)",
 	"|cffffd100/gt speedtest <First Last>|r - measure how fast addon whispers get through to another character (both need v3.14.2+; the full-size phase needs v3.14.3)",
 }
+
+-- "TEST  " in red before a test table's name (nothing goes on its ledger)
+function ns.TestTag(x) return (x and x.test) and "|cffff6161TEST|r  " or "" end
 
 -- money as letters (1g 50s) or coin icons
 function ns.SetCoinText(on)

@@ -413,7 +413,7 @@ function UI:Refresh()
 	end
 	ns.Client:SetLeaveButton(self.leave, g, g.phase == "open")
 	local lives0 = tonumber(g.param) or 3
-	self.title:SetText(("31 Blitz  %s |cffaaaaaaante|r   Pot %s   |cffaaaaaa%d %s each|r"):format(
+	self.title:SetText((ns.TestTag(g) .. "31 Blitz  %s |cffaaaaaaante|r   Pot %s   |cffaaaaaa%d %s each|r"):format(
 		ns.Money(g.wager or 0), ns.Money(c.pot or 0), lives0, lives0 == 1 and "life" or "lives"))
 	local t = b and b.turn
 	local stage = ns.CardClient:BlitzStage()

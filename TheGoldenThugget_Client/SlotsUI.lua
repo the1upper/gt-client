@@ -952,7 +952,7 @@ function UI:Refresh()
 	ns.Client:SetLeaveButton(self.leave, g, g.phase == "open")
 	local n = #(g.players or {})
 	local pot = (g.wager or 0) * math.max(n, 1)
-	self.title:SetText(("Battle Slots  %s |cffaaaaaaante|r   Pot %s"):format(ns.Money(g.wager or 0), ns.Money(pot)))
+	self.title:SetText((ns.TestTag(g) .. "Battle Slots  %s |cffaaaaaaante|r   Pot %s"):format(ns.Money(g.wager or 0), ns.Money(pot)))
 	local sl, d = g.sl, g.dice
 	local seated = ns.IndexOf(g.players or {}, ns.me) and not g.watching
 	local sub

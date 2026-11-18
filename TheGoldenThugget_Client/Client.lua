@@ -330,10 +330,14 @@ function C:Join(id)
 	if block then return ns.Notify(block) end
 	self.game = {
 		id = a.id, type = a.type, wager = a.wager, param = a.param, route = a.route, hands = a.hands,
-		players = {}, phase = "open", touched = GetTime(),
+		players = {}, phase = "open", touched = GetTime(), test = a.test,
 	}
 	self:ToHost(J("JOIN", a.id, ns.PROTO), a.route)
-	ns.Print(("Joining: %s. %s"):format(ns.Games.types[a.type].describe(a), ns.Games.WorstText(a)))
+	if a.test then
+		ns.Print(("Joining a |cffff6161TEST|r table: %s. Nothing goes on the ledger - no gold changes hands."):format(ns.Games.types[a.type].describe(a)))
+	else
+		ns.Print(("Joining: %s. %s"):format(ns.Games.types[a.type].describe(a), ns.Games.WorstText(a)))
+	end
 	if ns.ClientUI and ns.ClientUI.HideToast then ns.ClientUI:HideToast() end
 	refresh()
 end
@@ -361,7 +365,7 @@ function C:Watch(id)
 	end
 	self.game = {
 		id = a.id, type = a.type, wager = a.wager, param = a.param, route = a.route, hands = a.hands,
-		players = {}, phase = "open", touched = GetTime(), watching = true,
+		players = {}, phase = "open", touched = GetTime(), watching = true, test = a.test,
 	}
 	self:ToHost(J("WATCH", a.id), a.route)
 	ns.Notify(("Watching %s %s."):format(ns.Games.types[a.type].name, ns.Money(a.wager)))
@@ -632,13 +636,13 @@ H.ANN = function(sender, f, via)
 		max = tonumber(f[8]) or 2, seen = GetTime(), direct = (via == "WHISPER" or via == "BN") and f[6] == "WHISPER",
 		whispered = (via == "WHISPER" or via == "BN"),
 		minProto = tonumber(f[9]) or 0, houseVersion = f[10], limit = tonumber(f[11]) or 0, hands = tonumber(f[12]) or 1,
-		live = f[13] == "live", watchers = tonumber(f[14]) or 0,
+		live = f[13] == "live", watchers = tonumber(f[14]) or 0, test = f[15] == "1" or nil,
 	}
 	a.outdated = ns.PROTO < a.minProto
 	if a.houseVersion and a.houseVersion ~= "" then C.houseVersion = a.houseVersion end
 	local tr = C:TrackTable(id, a)
 	tr.seenAt = GetTime()
-	tr.count, tr.watchers, tr.direct = a.count, a.watchers, a.direct or tr.direct
+	tr.count, tr.watchers, tr.direct, tr.test = a.count, a.watchers, a.direct or tr.direct, a.test
 	if tr.status == "cancelled" or tr.status == "open" or tr.status == "live" then
 		if not (C.game and C.game.id == id) then tr.status = a.live and "live" or "open" end
 	end
@@ -649,7 +653,7 @@ H.ANN = function(sender, f, via)
 	local g = C.game
 	if g and g.id == id then g.touched = GetTime() end
 	if isNew and not (g and g.id == id) then
-		local text = ns.Games.types[gtype].describe(a)
+		local text = ns.TestTag(a) .. ns.Games.types[gtype].describe(a)
 		if a.direct then
 			ns.Notify(ns.Short(sender) .. " invites you: " .. text .. ". |cffffd100/gt join|r")
 			ns.Sound.Play("invite")
@@ -1037,7 +1041,7 @@ function C:FinishDice(g)
 	d.shown = #d.rolls
 	local res = g.result
 	for _, l in ipairs(res.log) do ns.Log(l) end
-	ns.Notify("|cffffd100" .. (res.summary or "Done") .. "|r")
+	ns.Notify("|cffffd100" .. (res.summary or "Done") .. "|r" .. (g.test and "  |cffff6161(test table - nothing recorded)|r" or ""))
 	for _, l in ipairs(ns.PayoutLines(ns.Games.Net(g, res))) do ns.Print("   " .. l) end
 	if ns.IndexOf(g.players, ns.me) then ns.Notify(ns.YouLine(g.delta or 0)) end
 	C:CloseTableSoon(g)
@@ -1100,7 +1104,7 @@ H.DON = function(sender, f)
 		if g and g.id == id then ns.Print(("Double or nothing? %s and %s are deciding..."):format(ns.Who(loser), ns.Who(winner))) end
 		return
 	end
-	C.double = { id = id, loser = loser, winner = winner, amount = amount, secs = secs, deadline = GetTime() + secs, yes = {}, route = g and g.id == id and g.route or nil }
+	C.double = { id = id, loser = loser, winner = winner, amount = amount, secs = secs, deadline = GetTime() + secs, yes = {}, route = g and g.id == id and g.route or nil, test = g and g.id == id and g.test or nil }
 	if ns.DoubleUI then ns.DoubleUI:Show() end
 end
 
@@ -1149,9 +1153,10 @@ function C:JoinDouble(id, amount, route)
 	if not id or id == "" then return end
 	if self.game and self.game.watching then self:StopWatching(true) end
 	if self:Active() then return end
+	local test = self.game and self.game.test
 	self.game = {
 		id = id, type = "coinflip", wager = amount, param = 1, route = route, hands = 1,
-		players = {}, phase = "open", touched = GetTime(), double = true,
+		players = {}, phase = "open", touched = GetTime(), double = true, test = test,
 	}
 	self:ToHost(J("JOIN", id, ns.PROTO), route)
 	refresh()

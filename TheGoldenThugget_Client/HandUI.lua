@@ -270,7 +270,7 @@ function UI:Refresh()
 		self.rollBtn:Hide(); self.standBtn:Hide(); self.pop:Hide()
 		return
 	end
-	self.title:SetText(("Thugget Dice  %s |cffece3ccante|r   |cff9e948aPot|r %s"):format(ns.Money(g.wager), ns.Money(c.pot > 0 and c.pot or (g.wager * #c.seats))))
+	self.title:SetText((ns.TestTag(g) .. "Thugget Dice  %s |cffece3ccante|r   |cff9e948aPot|r %s"):format(ns.Money(g.wager), ns.Money(c.pot > 0 and c.pot or (g.wager * #c.seats))))
 	local m = c.my
 	local revealing = self.revealUntil and GetTime() < self.revealUntil
 

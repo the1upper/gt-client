@@ -52,6 +52,8 @@ local function check(parent, label, note, get, set)
 	return b
 end
 
+UI.Check = check
+
 -- a labelled text box that applies on Enter (or when it loses focus)
 local function field(parent, label, w, get, apply, tip)
 	local fs = W.Text(parent, 12, C.text)
@@ -77,7 +79,7 @@ end
 function UI:Build()
 	if self.frame then return end
 	local house = H() ~= nil
-	local f = W.Window("GoldenThuggetSettings", "Settings", "Sounds, pop-ups and more.  /gt help lists every command.", 620, house and 545 or 510)
+	local f = W.Window("GoldenThuggetSettings", "Settings", "Sounds, pop-ups and more.  /gt help lists every command.", 620, house and 575 or 510)
 	f:SetFrameStrata("DIALOG")
 	self.frame = f
 	f:SetScript("OnShow", function() UI:Refresh() end)
@@ -205,6 +207,16 @@ function UI:Build()
 		end, "How much a player may owe the house, counting the worst case of the table they join. 'off' for no limit (/gth limit).")
 		lf:SetPoint("TOPLEFT", R, y)
 		fields[#fields + 1] = lf
+		y = y - 32
+		local tf = field(f, "Testers", 180, function() return table.concat(ns.Host:Testers(), ", ") end, function(v)
+			local list = ns.Host:Testers()
+			wipe(list)
+			for _, n in ipairs(ns.NameList(v)) do list[#list + 1] = n end
+			ns.Print(#list > 0 and ("Testers: " .. table.concat(list, ", ")) or "Tester list cleared.")
+			if ns.HostUI then ns.HostUI:Refresh() end
+		end, "Who hears about tables sent to Testers (the Where menu, or /gth open ... testers). Full names, separated by commas.")
+		tf:SetPoint("TOPLEFT", R, y)
+		fields[#fields + 1] = tf
 	end
 
 	local done = W.Button(f, "Done", 100, 26, "gold")

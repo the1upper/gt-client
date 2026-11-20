@@ -654,9 +654,10 @@ H.ANN = function(sender, f, via)
 	if g and g.id == id then g.touched = GetTime() end
 	if isNew and not (g and g.id == id) then
 		local text = ns.TestTag(a) .. ns.Games.types[gtype].describe(a)
+		-- a table just opened: everyone it reaches hears the thugget (window open or not)
+		if not a.live then ns.Sound.Play("table_open") end
 		if a.direct then
 			ns.Notify(ns.Short(sender) .. " invites you: " .. text .. ". |cffffd100/gt join|r")
-			ns.Sound.Play("invite")
 		elseif sender ~= ns.me then
 			ns.Print("Table open: " .. text .. ". |cffffd100/gt join|r")
 		end

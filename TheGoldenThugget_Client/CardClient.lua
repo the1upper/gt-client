@@ -373,7 +373,7 @@ local function install()
 		c.pot, c.contrib = res.pot, res.contrib
 		if tostring(res.pot) ~= f[6] and not c.gap then flag(c, "the showdown result doesn't match the rules.") end
 		c.phase, c.ins, c.shown, c.result, c.handNames = "show", ins, hands, res.summary, res.hand
-		if ns.Sound and next(ins or {}) then ns.Sound.Play("chips") end
+		if ns.Sound and next(ins or {}) then ns.Sound.Play("bet") end -- the stay-in bets
 		c.carried = res.redeal
 		-- what each player won or lost on this hand (ante and stay-in included)
 		c.handNet = nil

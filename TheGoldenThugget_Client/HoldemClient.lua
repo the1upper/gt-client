@@ -289,6 +289,7 @@ local function install()
 			if kind == "fold" then ns.Sound.Play("fold")
 			elseif kind == "check" then ns.Sound.Play("check")
 			elseif seat and seat.stack == 0 and (tonumber(put) or 0) > 0 then ns.Sound.Play("allin")
+			elseif (kind == "raise" or kind == "call") and (tonumber(put) or 0) > 0 then ns.Sound.Play("bet")
 			elseif (tonumber(put) or 0) > 0 then ns.Sound.Play("chips") end
 			local word = kind == "raise" and ((prev and prev.curBet == 0) and "bets" or "raises to") or (kind .. "s")
 			local amt = kind == "raise" and (" " .. ns.Money(st.last.to)) or kind == "call" and (" " .. ns.Money(st.last.put)) or ""

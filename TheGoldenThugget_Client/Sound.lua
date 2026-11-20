@@ -15,7 +15,9 @@ local DIR = ns.MEDIA .. "Sounds\\"
 -- shouldn't stack into a roar)
 S.EVENTS = {
 	-- the table
-	table_open   = { takes = { "chips_collide1", "chips_collide2", "chips_collide3", "chips_collide4" }, kit = { "IG_PLAYER_INVITE" } },
+	-- funny = rare joke takes (FUNNY_CHANCE split between them), long = the long
+	-- versions (LONG_CHANCE split between them); otherwise one of takes
+	table_open   = { takes = { "thugget0", "thugget1", "thugget3" }, long = { "thugget_long1", "thugget_long2", "thugget_long3" }, kit = { "IG_PLAYER_INVITE" }, gap = 1 },
 	player_join  = { takes = { "chip_lay1", "chip_lay2", "chip_lay3" }, kit = { "IG_PLAYER_INVITE" }, gap = 0 },
 	invite       = { takes = { "chips_handle1", "chips_handle2" }, kit = { "READY_CHECK" } },
 	start_cards  = { takes = { "card_shuffle1", "card_fan1", "card_fan2" } },
@@ -40,6 +42,8 @@ S.EVENTS = {
 	chips        = { takes = { "chips_stack1", "chips_stack2", "chips_stack3", "chips_stack4", "chips_stack5", "chips_stack6" }, gap = 0.08 },
 	check        = { takes = { "knock1", "knock2", "knock3" } },
 	fold         = { takes = { "card_shove1", "card_shove2", "card_shove3", "card_shove4" } },
+	-- a bet on top of the ante (Guts stay-ins, Hold'em bets, raises and calls)
+	bet          = { takes = { "chips_stack1", "chips_stack2", "chips_stack3", "chips_stack4", "chips_stack5", "chips_stack6" }, funny = { "bet_funny" }, gap = 0.08 },
 	allin        = { takes = { "chips_handle5", "chips_handle1", "chips_handle6" } },
 	-- you
 	your_turn    = { takes = { "bell1", "bell2", "bell3" }, kit = { "READY_CHECK" }, gap = 0.3 },
@@ -47,7 +51,7 @@ S.EVENTS = {
 	-- results
 	win          = { takes = { "coins_small1", "coins_small2", "coins_small3" }, kit = { "LOOT_WINDOW_COIN_SOUND", "IG_BACKPACK_COIN_OK" } },
 	win_big      = { takes = { "coins_big1", "coins_big2" }, kit = { "LOOT_WINDOW_COIN_SOUND", "IG_BACKPACK_COIN_OK" } },
-	lose         = { takes = { "lose1", "lose2" }, kit = { "IG_QUEST_FAILED" } },
+	lose         = { takes = { "lose" }, funny = { "lose_funny1", "lose_funny2" }, kit = { "IG_QUEST_FAILED" } },
 	push         = { takes = { "chip_lay1", "chip_lay2", "chip_lay3" } },
 	jackpot      = { takes = { "jackpot1" }, kit = { "LOOT_WINDOW_COIN_SOUND" } },
 	-- the bank (house)
@@ -92,18 +96,37 @@ local function playKit(names)
 end
 
 -- play one take of an event now (force: ignore the gap and the switch)
+-- which take to play: a funny one FUNNY_CHANCE of the time (split evenly
+-- between them), else a long one LONG_CHANCE of the time, else a regular take
+-- (never the same regular take twice running). An event with only funny
+-- takes (no regular ones) is silent the rest of the time.
+S.FUNNY_CHANCE, S.LONG_CHANCE = 0.05, 0.10
+function S.Pick(e, event, roll)
+	roll = roll or math.random()
+	if e.funny and #e.funny > 0 and roll < S.FUNNY_CHANCE then
+		return e.funny[math.floor(roll / S.FUNNY_CHANCE * #e.funny) + 1]
+	end
+	if e.long and #e.long > 0 then
+		local r2 = math.random()
+		if r2 < S.LONG_CHANCE then return e.long[math.floor(r2 / S.LONG_CHANCE * #e.long) + 1] end
+	end
+	local takes = e.takes
+	if not takes or #takes == 0 then return nil end
+	local i = math.random(#takes)
+	if #takes > 1 and i == lastTake[event] then i = i % #takes + 1 end
+	lastTake[event] = i
+	return takes[i]
+end
+
 function S.PlayNow(event, force)
 	local e = S.EVENTS[event]
 	if not e or (not force and not S.Enabled(event)) then return false end
 	local now = GetTime()
 	if not force and last[event] and now - last[event] < (e.gap or 0.05) then return false end
 	last[event] = now
-	local takes = e.takes
-	if takes and #takes > 0 and PlaySoundFile then
-		local i = math.random(#takes)
-		if #takes > 1 and i == lastTake[event] then i = i % #takes + 1 end -- never the same take twice running
-		lastTake[event] = i
-		local ok, willPlay = pcall(PlaySoundFile, DIR .. takes[i] .. ".ogg", channel())
+	local file = S.Pick(e, event)
+	if file and PlaySoundFile then
+		local ok, willPlay = pcall(PlaySoundFile, DIR .. file .. ".ogg", channel())
 		if ok and willPlay then return true end
 	end
 	return playKit(e.kit)
@@ -136,7 +159,7 @@ end
 
 -- /gt sound test: every event once, a beat apart
 S.ORDER = { "table_open", "player_join", "invite", "start_cards", "start_dice", "dice_roll", "dice_land", "dice_throw", "coin_flip", "coin_land", "slot_reels", "slot_reels_tease", "slot_reels_quick", "reel_stop", "slot_pair", "slot_win", "slot_lose", "double_offer", "card_deal", "card_flip",
-	"chips", "check", "fold", "allin", "your_turn", "hurry", "win", "win_big", "lose", "push", "jackpot", "ledger_in", "ledger_out", "reset" }
+	"chips", "bet", "check", "fold", "allin", "your_turn", "hurry", "win", "win_big", "lose", "push", "jackpot", "ledger_in", "ledger_out", "reset" }
 function S.Test()
 	ns.Print("Playing every sound, one every 1.5 seconds:")
 	for k, ev in ipairs(S.ORDER) do
@@ -147,13 +170,31 @@ function S.Test()
 	end
 end
 
+-- /gt sound rare: the funny and long takes that normally play only now and then
+function S.TestRare()
+	local list = {}
+	for _, ev in ipairs(S.ORDER) do
+		local e = S.EVENTS[ev]
+		for _, f in ipairs(e.funny or {}) do list[#list + 1] = { ev, f } end
+		for _, f in ipairs(e.long or {}) do list[#list + 1] = { ev, f } end
+	end
+	ns.Print(("Playing the %d rare sounds, one every 9 seconds:"):format(#list))
+	for k, it in ipairs(list) do
+		C_Timer.After((k - 1) * 9, function()
+			ns.Print("  " .. it[1]:gsub("_", " ") .. ": " .. it[2]:gsub("_", " "))
+			pcall(PlaySoundFile, DIR .. it[2] .. ".ogg", channel())
+		end)
+	end
+end
+
 function S.Slash(arg)
 	arg = (arg or ""):lower()
 	local s = ns.db.settings
 	if arg == "on" then s.sound = true
 	elseif arg == "off" then s.sound = false
 	elseif arg == "test" then return S.Test()
+	elseif arg == "rare" then return S.TestRare()
 	else s.sound = (s.sound == false) end
-	ns.Print("Sounds " .. (s.sound == false and "|cffff6161off|r" or "|cff59d959on|r") .. ". (/gt sound test plays them all)")
+	ns.Print("Sounds " .. (s.sound == false and "|cffff6161off|r" or "|cff59d959on|r") .. ". (/gt sound test plays them all, /gt sound rare the rare ones)")
 	if ns.SettingsUI then ns.SettingsUI:Refresh() end
 end

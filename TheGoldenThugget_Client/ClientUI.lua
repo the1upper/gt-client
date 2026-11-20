@@ -549,7 +549,7 @@ function UI:Toast(a, watch)
 	t.shownAt = GetTime()
 	local at = t.shownAt
 	C_Timer.After(t.dur, function() if t.shownAt == at then t:Hide() end end)
-	ns.Sound.Play(watch and "invite" or "table_open")
+	if watch then ns.Sound.Play("invite") end -- (a new table's sound plays when it's announced)
 end
 
 function UI:HideToast(id)

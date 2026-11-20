@@ -19,7 +19,7 @@ end
 ns.name = addonName
 ns.isHostBuild = addonName:find("_Host", 1, true) ~= nil
 ns.MEDIA = "Interface\\AddOns\\" .. addonName .. "\\Media\\"
-ns.version = "3.27.2"
+ns.version = "3.28.0"
 -- Protocol version: bumped whenever clients and the house must match.
 -- The house refuses clients below its minimum and tells them to update.
 ns.PROTO = 17 -- 17: test tables (TEST tag, nothing on the ledger); 8: spectators, live table listings; 9: Texas Hold'em; 10: multi-player Death Roll, High-Low coin; 11: Coin Flip; 12: knockout Acey-Deucey; 13: Acey no-call is out; 14: Battle Slots; 15: double or nothing; 16: 31 Blitz
@@ -481,7 +481,7 @@ local HELP = {
 	"|cffffd100/gt balance|r - your balance with the house,  |cffffd100/gt ledger|r - everyone's,  |cffffd100/gt top|r - lifetime leaderboard",
 	"|cffffd100/gt pay|r - at a mailbox: fill a mail to the host for what you owe",
 	"|cffffd100/gt table|r - show/hide the table window,  |cffffd100/gt quiet|r - quiet chat on/off,  |cffffd100/gt alerts|r - table pop-ups on/off,  |cffffd100/gt minimap|r - minimap button on/off,  |cffffd100/gt watch|r - watch the newest table",
-	"|cffffd100/gt sound|r - all sounds on/off (|cffffd100/gt sound test|r plays each one),  |cffffd100/gt coins|r - coin icons or g/s/c letters for money,  |cffffd100/gt resetpos|r - put every Golden Thugget window back in the middle",
+	"|cffffd100/gt sound|r - all sounds on/off (|cffffd100/gt sound test|r plays each one, |cffffd100/gt sound rare|r the rare ones),  |cffffd100/gt coins|r - coin icons or g/s/c letters for money,  |cffffd100/gt resetpos|r - put every Golden Thugget window back in the middle",
 	"|cffffd100/gt host <First Last>|r - set which player is the house (only their tables/ledger are trusted)",
 	"|cffffd100/gt channel <name>|r - custom channel name (must match the host's)",
 	"|cffffd100/gt speedtest <First Last>|r - measure how fast addon whispers get through to another character (both need v3.14.2+; the full-size phase needs v3.14.3)",

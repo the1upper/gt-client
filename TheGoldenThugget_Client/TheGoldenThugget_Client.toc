@@ -2,7 +2,7 @@
 ## Title: Golden Thugget |cff88ccffClient|r
 ## Notes: Play at The Golden Thugget: join the house's dice, card and Hold'em tables from anywhere and see the ledger. Enable this OR Golden Thugget Host, not both.
 ## Author: Wes
-## Version: 3.27.2
+## Version: 3.28.0
 ## OptionalDeps: TheGoldenThugget_Host
 ## SavedVariables: GoldenThuggetDB
 ## IconTexture: Interface\AddOns\TheGoldenThugget_Client\Media\logo

@@ -19,7 +19,7 @@ end
 ns.name = addonName
 ns.isHostBuild = addonName:find("_Host", 1, true) ~= nil
 ns.MEDIA = "Interface\\AddOns\\" .. addonName .. "\\Media\\"
-ns.version = "3.28.0"
+ns.version = "3.28.1"
 -- Protocol version: bumped whenever clients and the house must match.
 -- The house refuses clients below its minimum and tells them to update.
 ns.PROTO = 17 -- 17: test tables (TEST tag, nothing on the ledger); 8: spectators, live table listings; 9: Texas Hold'em; 10: multi-player Death Roll, High-Low coin; 11: Coin Flip; 12: knockout Acey-Deucey; 13: Acey no-call is out; 14: Battle Slots; 15: double or nothing; 16: 31 Blitz

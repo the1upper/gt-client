@@ -131,34 +131,36 @@ local function hideFromChat()
 end
 
 -- Channel numbers go to the lowest free slot, and WoW joins General (/1),
--- Trade and LocalDefense a few seconds after login. Joining ours before them
--- would push General off /1, so we only join once slot 1 belongs to someone
--- else - or, for players who've left every public channel, after a minute.
+-- Trade and LocalDefense a few seconds after login. Joining ours first would
+-- push General off /1, so we join once slot 1 belongs to another channel -
+-- or 20 seconds after login whatever happens (the channel always gets joined).
 -- (pure, so it can be tested: list = { [id] = name } of joined channels)
+local JOIN_BY = 20
 function Comm.ChannelSlotOK(list, ours, sinceLogin)
 	ours = (ours or ""):lower()
 	local first = list[1]
 	if first and first:lower():gsub("^%d+%.%s*", "") ~= ours then return true end
-	local others = false
-	for _, name in pairs(list) do
-		if name:lower():gsub("^%d+%.%s*", "") ~= ours then others = true end
-	end
-	-- slot 1 free but other channels joined: General was pushed down this
-	-- session; wait (it's back on /1 after a relog). No channels at all: join.
-	return not others and (sinceLogin or 0) > 60
+	return (sinceLogin or 0) >= JOIN_BY
 end
 
 local loginAt = GetTime and GetTime() or 0
 local function joinedChannels()
 	local list = {}
 	if not GetChannelList then return list end
+	-- (id, name, disabled) triples - or (id, name) pairs on some clients
 	local t = { GetChannelList() }
-	for i = 1, #t, 3 do
-		local id, name = t[i], t[i + 1]
-		if type(id) == "number" and type(name) == "string" then list[id] = name end
+	local i = 1
+	while i <= #t do
+		if type(t[i]) == "number" and type(t[i + 1]) == "string" then
+			list[t[i]] = t[i + 1]
+			i = i + 2
+		else
+			i = i + 1
+		end
 	end
 	return list
 end
+local function isOurs(name) return name:lower():gsub("^%d+%.%s*", "") == chanName():lower() end
 
 function Comm:EnsureChannel()
 	local id = self:ChannelId()
@@ -170,18 +172,27 @@ function Comm:EnsureChannel()
 	return self:ChannelId()
 end
 
--- An older version (or a /reload) left our channel on /1 with General pushed to
--- /2 or later: step off /1 so General gets it back at the next login.
-function Comm:FixChannelSlot()
-	if self:ChannelId() ~= 1 then return end
-	local others = false
-	for cid, name in pairs(joinedChannels()) do
-		if cid ~= 1 and name:lower():gsub("^%d+%.%s*", "") ~= chanName():lower() then others = true end
+-- Right at login: if WoW put us back in our channel before General (nothing
+-- else joined yet), step out so General can take /1 - we rejoin after it.
+function Comm:LoginChannelOrder()
+	if not self:ChannelId() then return end
+	for _, name in pairs(joinedChannels()) do
+		if not isOurs(name) then return end -- others already here (a /reload): leave it be
 	end
-	if not others then return end
 	pcall(LeaveChannelByName, chanName())
 	wipe(members)
-	ns.Print("Moved the casino's hidden channel off /1 - your General chat goes back to /1 the next time you log in.")
+end
+
+-- Ours on /1 with General pushed down (from an older version): we stay in the
+-- channel and say once how to get General back on /1.
+function Comm:CheckChannelSlot()
+	if self:ChannelId() ~= 1 or self.slotTipShown then return end
+	for cid, name in pairs(joinedChannels()) do
+		if cid ~= 1 and not isOurs(name) then
+			self.slotTipShown = true
+			return ns.Print("The casino's hidden channel is on /1 this session, pushing General down - log out and back in and General is /1 again.")
+		end
+	end
 end
 
 function Comm:LeaveChannel()
@@ -250,7 +261,8 @@ local function initChannel()
 		end)
 	end
 	loginAt = GetTime()
-	C_Timer.After(8, function() Comm:FixChannelSlot() end)
+	Comm:LoginChannelOrder()
+	C_Timer.After(10, function() Comm:CheckChannelSlot() end)
 	-- join once General has /1 (checked every few seconds until we're in)
 	local joinTicker, tries = nil, 0
 	joinTicker = C_Timer.NewTicker(4, function()
